@@ -79,7 +79,7 @@ fn timestamp() -> *mut AnyObject {
 }
 
 fn state_file() -> Option<*mut AnyObject> {
-    let folder = dirs::config_dir()?.join(BUNDLE_ID);
+    let folder = crate::store::state_folder(BUNDLE_ID)?;
     std::fs::create_dir_all(&folder).ok()?;
     Some(ns_string(folder.join("state.json").to_str()?))
 }

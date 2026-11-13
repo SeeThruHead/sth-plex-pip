@@ -72,6 +72,11 @@ impl Default for Settings {
     }
 }
 
+#[cfg(target_os = "macos")]
+pub fn state_folder(bundle_id: &str) -> Option<PathBuf> {
+    std::env::var_os(HOME_OVERRIDE).map(PathBuf::from).or_else(|| dirs::config_dir().map(|dir| dir.join(bundle_id)))
+}
+
 pub fn home() -> PathBuf {
     std::env::var_os(HOME_OVERRIDE)
         .map(PathBuf::from)
