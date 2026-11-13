@@ -88,10 +88,7 @@ struct Overlay {
 
 impl Overlay {
     fn output_info(&self) -> Option<smithay_client_toolkit::output::OutputInfo> {
-        self.output
-            .as_ref()
-            .or(self.outputs.outputs().next().as_ref())
-            .and_then(|output| self.outputs.info(output))
+        self.output.as_ref().or(self.outputs.outputs().next().as_ref()).and_then(|output| self.outputs.info(output))
     }
 
     fn screen(&self) -> Size {
@@ -136,10 +133,9 @@ impl Overlay {
     }
 
     fn start(&mut self) -> Result<(), String> {
-        let display = NonNull::new(self.connection.backend().display_ptr() as *mut c_void)
-            .ok_or("no Wayland display")?;
-        let surface = NonNull::new(self.layer.wl_surface().id().as_ptr() as *mut c_void)
-            .ok_or("no Wayland surface")?;
+        let display =
+            NonNull::new(self.connection.backend().display_ptr() as *mut c_void).ok_or("no Wayland display")?;
+        let surface = NonNull::new(self.layer.wl_surface().id().as_ptr() as *mut c_void).ok_or("no Wayland surface")?;
         let graphics = graphics::open(display, surface, self.pixels())?;
         let player = Player::new(
             graphics.lookup(),
@@ -203,10 +199,8 @@ impl Overlay {
 
     fn raw_input(&mut self) -> egui::RawInput {
         let size = egui::vec2(self.rect.width, self.rect.height);
-        let viewport = egui::ViewportInfo {
-            native_pixels_per_point: Some(self.scale.max(1) as f32),
-            ..Default::default()
-        };
+        let viewport =
+            egui::ViewportInfo { native_pixels_per_point: Some(self.scale.max(1) as f32), ..Default::default() };
         egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
             viewports: [(egui::ViewportId::ROOT, viewport)].into_iter().collect(),
@@ -273,23 +267,49 @@ impl Overlay {
 }
 
 impl CompositorHandler for Overlay {
-    fn scale_factor_changed(&mut self, _: &Connection, _: &QueueHandle<Self>, surface: &wl_surface::WlSurface, factor: i32) {
+    fn scale_factor_changed(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        surface: &wl_surface::WlSurface,
+        factor: i32,
+    ) {
         self.scale = factor.max(1);
         surface.set_buffer_scale(self.scale);
         self.fit_graphics();
         self.dirty = true;
     }
 
-    fn transform_changed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: wl_output::Transform) {}
+    fn transform_changed(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_surface::WlSurface,
+        _: wl_output::Transform,
+    ) {
+    }
 
     fn frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: u32) {}
 
-    fn surface_enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, output: &wl_output::WlOutput) {
+    fn surface_enter(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_surface::WlSurface,
+        output: &wl_output::WlOutput,
+    ) {
         self.output = Some(output.clone());
         self.dirty = true;
     }
 
-    fn surface_leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: &wl_output::WlOutput) {}
+    fn surface_leave(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_surface::WlSurface,
+        _: &wl_output::WlOutput,
+    ) {
+    }
 }
 
 impl OutputHandler for Overlay {
@@ -327,7 +347,13 @@ impl SeatHandler for Overlay {
 
     fn new_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
 
-    fn new_capability(&mut self, _: &Connection, queue: &QueueHandle<Self>, seat: wl_seat::WlSeat, capability: Capability) {
+    fn new_capability(
+        &mut self,
+        _: &Connection,
+        queue: &QueueHandle<Self>,
+        seat: wl_seat::WlSeat,
+        capability: Capability,
+    ) {
         if capability == Capability::Keyboard && self.keyboard.is_none() {
             self.keyboard = self.seats.get_keyboard(queue, &seat, None).ok();
         }
@@ -360,26 +386,74 @@ impl SeatHandler for Overlay {
 }
 
 impl KeyboardHandler for Overlay {
-    fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, _: u32, _: &[u32], _: &[Keysym]) {}
+    fn enter(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: &wl_surface::WlSurface,
+        _: u32,
+        _: &[u32],
+        _: &[Keysym],
+    ) {
+    }
 
-    fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, _: u32) {}
+    fn leave(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: &wl_surface::WlSurface,
+        _: u32,
+    ) {
+    }
 
-    fn press_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, event: KeyEvent) {
+    fn press_key(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        event: KeyEvent,
+    ) {
         self.events.extend(input::key_down(&event, self.held, false));
         self.dirty = true;
     }
 
-    fn repeat_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, event: KeyEvent) {
+    fn repeat_key(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        event: KeyEvent,
+    ) {
         self.events.extend(input::key_down(&event, self.held, true));
         self.dirty = true;
     }
 
-    fn release_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, event: KeyEvent) {
+    fn release_key(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        event: KeyEvent,
+    ) {
         self.events.extend(input::key_up(&event, self.held));
         self.dirty = true;
     }
 
-    fn update_modifiers(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, modifiers: Modifiers, _: RawModifiers, _: u32) {
+    fn update_modifiers(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        modifiers: Modifiers,
+        _: RawModifiers,
+        _: u32,
+    ) {
         self.held = input::modifiers(modifiers);
     }
 }
@@ -408,17 +482,27 @@ impl Overlay {
 }
 
 impl PointerHandler for Overlay {
-    fn pointer_frame(&mut self, connection: &Connection, _: &QueueHandle<Self>, _: &wl_pointer::WlPointer, events: &[PointerEvent]) {
+    fn pointer_frame(
+        &mut self,
+        connection: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_pointer::WlPointer,
+        events: &[PointerEvent],
+    ) {
         let surface = self.layer.wl_surface().clone();
-        events
-            .iter()
-            .filter(|event| event.surface == surface)
-            .for_each(|event| self.pointed(connection, event));
+        events.iter().filter(|event| event.surface == surface).for_each(|event| self.pointed(connection, event));
     }
 }
 
 impl RelativePointerHandler for Overlay {
-    fn relative_pointer_motion(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &ZwpRelativePointerV1, _: &wl_pointer::WlPointer, event: RelativeMotionEvent) {
+    fn relative_pointer_motion(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &ZwpRelativePointerV1,
+        _: &wl_pointer::WlPointer,
+        event: RelativeMotionEvent,
+    ) {
         self.dragged(event.delta.0 as f32, event.delta.1 as f32);
     }
 }
@@ -437,7 +521,15 @@ impl ProvidesRegistryState for Overlay {
 }
 
 impl Dispatch<wl_region::WlRegion, ()> for Overlay {
-    fn event(_: &mut Self, _: &wl_region::WlRegion, _: wl_region::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+    fn event(
+        _: &mut Self,
+        _: &wl_region::WlRegion,
+        _: wl_region::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
 }
 
 delegate_registry!(Overlay);
@@ -450,21 +542,16 @@ pub fn run() -> Result<(), String> {
     let queue = event_queue.handle();
     let mut event_loop: EventLoop<Overlay> = EventLoop::try_new().map_err(|error| wayland(&error))?;
     let handle = event_loop.handle();
-    WaylandSource::new(connection.clone(), event_queue)
-        .insert(handle.clone())
-        .map_err(|error| wayland(&error))?;
+    WaylandSource::new(connection.clone(), event_queue).insert(handle.clone()).map_err(|error| wayland(&error))?;
 
     let compositor = CompositorState::bind(&globals, &queue).map_err(|error| wayland(&error))?;
-    let layer_shell = LayerShell::bind(&globals, &queue).map_err(|_| {
-        "This compositor has no layer-shell, which the overlay needs (GNOME has none).".to_string()
-    })?;
+    let layer_shell = LayerShell::bind(&globals, &queue)
+        .map_err(|_| "This compositor has no layer-shell, which the overlay needs (GNOME has none).".to_string())?;
     let shm = Shm::bind(&globals, &queue).map_err(|error| wayland(&error))?;
 
     let (ping, pings) = make_ping().map_err(|error| wayland(&error))?;
     let wake: Wake = Arc::new(move || ping.ping());
-    handle
-        .insert_source(pings, |_, _, overlay| overlay.dirty = true)
-        .map_err(|error| wayland(&error))?;
+    handle.insert_source(pings, |_, _, overlay| overlay.dirty = true).map_err(|error| wayland(&error))?;
     handle
         .insert_source(Timer::from_duration(HEARTBEAT), |_, _, overlay| {
             overlay.heartbeat();
@@ -521,7 +608,7 @@ pub fn run() -> Result<(), String> {
     };
 
     let signal = event_loop.get_signal();
-    event_loop
+    let ran = event_loop
         .run(None, &mut overlay, |overlay| {
             if overlay.dirty {
                 overlay.draw();
@@ -530,6 +617,8 @@ pub fn run() -> Result<(), String> {
                 signal.stop();
             }
         })
-        .map_err(|error| wayland(&error))
-        .and_then(|_| overlay.failure.take().map_or(Ok(()), Err))
+        .map_err(|error| wayland(&error));
+    overlay.app = None;
+    overlay.graphics = None;
+    ran.and_then(|_| overlay.failure.take().map_or(Ok(()), Err))
 }

@@ -17,7 +17,6 @@ const GRIP: f32 = 18.0;
 pub enum Action {
     SignIn,
     SignOut,
-    Home,
     Back,
     Open(Listing),
     Play { item: Box<Item>, following: Vec<Item> },
@@ -88,7 +87,7 @@ fn within<R>(ui: &mut Ui, rect: Rect, layout: Layout, add: impl FnOnce(&mut Ui) 
     ui.scope_builder(UiBuilder::new().max_rect(rect).layout(layout), add).inner
 }
 
-pub fn sign_in(ui: &mut Ui, waiting: bool, notice: Option<&str>) -> Vec<Action> {
+pub fn sign_in(ui: &mut Ui, waiting: bool, notice: Option<&str>, link: Option<&str>) -> Vec<Action> {
     panel(ui);
     let strip = Rect::from_min_size(ui.max_rect().min, Vec2::new(ui.max_rect().width(), BAR_HEIGHT));
     let moved = drag_strip(ui, strip);
@@ -104,9 +103,15 @@ pub fn sign_in(ui: &mut Ui, waiting: bool, notice: Option<&str>) -> Vec<Action> 
                 ui.label("Finish signing in in the browser that just opened.");
                 ui.add_space(6.0);
                 ui.spinner();
+                link.into_iter().for_each(|url| {
+                    ui.add_space(10.0);
+                    ui.label(RichText::new("No browser? Open this link on any device:").color(QUIET).small());
+                    ui.add(egui::TextEdit::singleline(&mut url.to_string()).desired_width(420.0));
+                });
                 return None;
             }
-            let button = egui::Button::new(RichText::new("Sign in with Plex").size(15.0)).fill(ACCENT.gamma_multiply(0.5));
+            let button =
+                egui::Button::new(RichText::new("Sign in with Plex").size(15.0)).fill(ACCENT.gamma_multiply(0.5));
             ui.add(button).clicked().then_some(Action::SignIn)
         })
         .inner;
@@ -177,10 +182,8 @@ fn home(ui: &mut Ui, browser: &Browser) -> Vec<Action> {
     let opened = browser
         .sections
         .iter()
-        .filter_map(|section| {
-            row(ui, format!("    {}", section.title), true)
-                .then(|| Action::Open(Listing::Section(section.clone())))
-        })
+        .filter(|section| row(ui, format!("    {}", section.title), true))
+        .map(|section| Action::Open(Listing::Section(section.clone())))
         .collect::<Vec<_>>();
     resumed.into_iter().chain(opened).collect()
 }
@@ -283,9 +286,7 @@ fn track_menu(ui: &mut Ui, icon: &str, kind: TrackKind, tracks: &[Track], can_tu
         let picked = tracks
             .iter()
             .filter_map(|track| {
-                ui.radio(track.selected, &track.label)
-                    .clicked()
-                    .then_some(Action::Select(kind, Some(track.id)))
+                ui.radio(track.selected, &track.label).clicked().then_some(Action::Select(kind, Some(track.id)))
             })
             .next_back();
         off.or(picked)
@@ -295,17 +296,11 @@ fn track_menu(ui: &mut Ui, icon: &str, kind: TrackKind, tracks: &[Track], can_tu
 }
 
 fn top_bar(ui: &mut Ui, watching: &Watching) -> Vec<Action> {
-    if !watching.corner.top() && !watching.corner.left() {
-        ui.add_space(GRIP);
-    }
     ui.label(RichText::new(watching.title).strong().color(Color32::WHITE));
     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
         let done = ui.button("✖").on_hover_text("Put the controls away").clicked();
         let library = ui.button("☰").on_hover_text("Stop and go back to the library").clicked();
-        [
-            done.then_some(Action::Run(Command::Controls)),
-            library.then_some(Action::Run(Command::Stop)),
-        ]
+        [done.then_some(Action::Run(Command::Controls)), library.then_some(Action::Run(Command::Stop))]
     })
     .inner
     .into_iter()
@@ -324,10 +319,7 @@ fn seek_bar(ui: &mut Ui, playback: &Playback) -> Option<Action> {
 fn transport(ui: &mut Ui, watching: &Watching) -> Vec<Action> {
     let playback = &watching.playback;
     let back = ui.button("⏪").clicked().then_some(Action::Run(Command::Seek { seconds: -10.0 }));
-    let toggle = ui
-        .button(if playback.paused { "▶" } else { "⏸" })
-        .clicked()
-        .then_some(Action::Run(Command::Pause));
+    let toggle = ui.button(if playback.paused { "▶" } else { "⏸" }).clicked().then_some(Action::Run(Command::Pause));
     let forward = ui.button("⏩").clicked().then_some(Action::Run(Command::Seek { seconds: 30.0 }));
     ui.label(
         RichText::new(format!("{} / {}", clock(playback.position), clock(playback.duration)))
@@ -354,6 +346,11 @@ fn grip_rect(full: Rect, corner: Corner) -> Rect {
     Rect::from_min_size(egui::pos2(x, y), Vec2::splat(GRIP))
 }
 
+fn clear_of_grip(bar: Rect, corner: Corner) -> Rect {
+    let (left, right) = if corner.left() { (0.0, GRIP) } else { (GRIP, 0.0) };
+    Rect::from_min_max(bar.min + Vec2::new(left, 0.0), bar.max - Vec2::new(right, 0.0))
+}
+
 fn grip(ui: &mut Ui, corner: Corner) -> Option<Action> {
     let rect = grip_rect(ui.max_rect(), corner);
     let response = ui.interact(rect, ui.scope_id().with("resize"), Sense::drag());
@@ -369,7 +366,12 @@ pub fn controls(ui: &mut Ui, watching: &Watching) -> Vec<Action> {
     ui.painter().rect_filled(top, CornerRadius::ZERO, BAR);
     ui.painter().rect_filled(bottom, CornerRadius::ZERO, BAR);
     let moved = drag_strip(ui, top);
-    let barred = within(ui, padded(top), Layout::left_to_right(Align::Center), |ui| top_bar(ui, watching));
+    let (title, buttons) = if watching.corner.top() {
+        (top, clear_of_grip(buttons, watching.corner))
+    } else {
+        (clear_of_grip(top, watching.corner), buttons)
+    };
+    let barred = within(ui, padded(title), Layout::left_to_right(Align::Center), |ui| top_bar(ui, watching));
     let sought = within(ui, padded(seek), Layout::left_to_right(Align::Center), |ui| seek_bar(ui, &watching.playback));
     let pressed = within(ui, padded(buttons), Layout::left_to_right(Align::Center), |ui| transport(ui, watching));
     let resized = grip(ui, watching.corner);

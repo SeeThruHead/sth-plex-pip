@@ -27,6 +27,8 @@ pub enum Command {
     },
     #[command(about = "Move the window to a corner")]
     Corner { corner: Corner },
+    #[command(about = "Play the first match for these words; with no words, resume the latest thing")]
+    Play { words: Vec<String> },
     #[command(about = "Stop playback and go back to the library")]
     Stop,
     #[command(about = "Quit the player")]

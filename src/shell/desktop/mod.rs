@@ -43,10 +43,10 @@ struct Graphics {
 }
 
 struct Running {
-    window: Window,
-    graphics: Graphics,
-    input: egui_winit::State,
     app: App,
+    input: egui_winit::State,
+    graphics: Graphics,
+    window: Window,
 }
 
 struct Desktop {
@@ -96,17 +96,17 @@ fn open(event_loop: &ActiveEventLoop, wake: Wake, commands: Receiver<Command>) -
         .map_err(|error| fail(&error))?;
     let window = match window {
         Some(window) => window,
-        None => glutin_winit::finalize_window(event_loop, window_attributes(), &config).map_err(|error| fail(&error))?,
+        None => {
+            glutin_winit::finalize_window(event_loop, window_attributes(), &config).map_err(|error| fail(&error))?
+        }
     };
     let handle = window.window_handle().map_err(|error| fail(&error))?.as_raw();
     let display = config.display();
     let size = window.inner_size();
-    let surface_attributes = SurfaceAttributesBuilder::<WindowSurface>::new().build(
-        handle,
-        dimension(size.width),
-        dimension(size.height),
-    );
-    let surface = unsafe { display.create_window_surface(&config, &surface_attributes) }.map_err(|error| fail(&error))?;
+    let surface_attributes =
+        SurfaceAttributesBuilder::<WindowSurface>::new().build(handle, dimension(size.width), dimension(size.height));
+    let surface =
+        unsafe { display.create_window_surface(&config, &surface_attributes) }.map_err(|error| fail(&error))?;
     let context_attributes = ContextAttributesBuilder::new().build(Some(handle));
     let context = unsafe { display.create_context(&config, &context_attributes) }
         .map_err(|error| fail(&error))?
@@ -332,6 +332,10 @@ impl ApplicationHandler for Desktop {
             }
             _ => running.window.request_redraw(),
         }
+    }
+
+    fn exiting(&mut self, _: &ActiveEventLoop) {
+        self.running = None;
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {

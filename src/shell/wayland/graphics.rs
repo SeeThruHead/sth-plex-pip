@@ -38,11 +38,8 @@ pub fn open(
         .map_err(fail)?
         .min_by_key(|config| config.num_samples())
         .ok_or("OpenGL has no pixel format with transparency")?;
-    let surface_attributes = SurfaceAttributesBuilder::<WindowSurface>::new().build(
-        raw_window,
-        dimension(pixels[0]),
-        dimension(pixels[1]),
-    );
+    let surface_attributes =
+        SurfaceAttributesBuilder::<WindowSurface>::new().build(raw_window, dimension(pixels[0]), dimension(pixels[1]));
     let surface = unsafe { display.create_window_surface(&config, &surface_attributes) }.map_err(fail)?;
     let context_attributes = ContextAttributesBuilder::new().build(Some(raw_window));
     let context = unsafe { display.create_context(&config, &context_attributes) }

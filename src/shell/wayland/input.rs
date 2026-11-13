@@ -7,13 +7,7 @@ const RIGHT: u32 = 0x111;
 const MIDDLE: u32 = 0x112;
 
 pub fn modifiers(held: smithay_client_toolkit::seat::keyboard::Modifiers) -> Modifiers {
-    Modifiers {
-        alt: held.alt,
-        ctrl: held.ctrl,
-        shift: held.shift,
-        mac_cmd: false,
-        command: held.ctrl,
-    }
+    Modifiers { alt: held.alt, ctrl: held.ctrl, shift: held.shift, mac_cmd: false, command: held.ctrl }
 }
 
 fn button(code: u32) -> Option<PointerButton> {
@@ -38,10 +32,12 @@ pub fn pointer(event: &PointerEvent, held: Modifiers) -> Option<Event> {
     match event.kind {
         PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => Some(Event::PointerMoved(pos)),
         PointerEventKind::Leave { .. } => Some(Event::PointerGone),
-        PointerEventKind::Press { button: code, .. } => button(code)
-            .map(|button| Event::PointerButton { pos, button, pressed: true, modifiers: held }),
-        PointerEventKind::Release { button: code, .. } => button(code)
-            .map(|button| Event::PointerButton { pos, button, pressed: false, modifiers: held }),
+        PointerEventKind::Press { button: code, .. } => {
+            button(code).map(|button| Event::PointerButton { pos, button, pressed: true, modifiers: held })
+        }
+        PointerEventKind::Release { button: code, .. } => {
+            button(code).map(|button| Event::PointerButton { pos, button, pressed: false, modifiers: held })
+        }
         PointerEventKind::Axis { horizontal, vertical, .. } => Some(Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
             delta: Vec2::new(-horizontal.absolute as f32, -vertical.absolute as f32),

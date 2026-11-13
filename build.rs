@@ -16,7 +16,5 @@ fn from_pkg_config() -> Vec<String> {
 fn main() {
     println!("cargo:rerun-if-env-changed=MPV_LIB_DIR");
     let folders = std::env::var("MPV_LIB_DIR").map(|folder| vec![folder]).unwrap_or_else(|_| from_pkg_config());
-    folders
-        .iter()
-        .for_each(|folder| println!("cargo:rustc-link-search=native={folder}"));
+    folders.iter().for_each(|folder| println!("cargo:rustc-link-search=native={folder}"));
 }

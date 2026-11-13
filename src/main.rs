@@ -27,7 +27,9 @@ fn start() -> Result<(), String> {
     if control::already_running() {
         return Err("sth-plex-pip is already running. Use a subcommand to control it.".into());
     }
-    shell::run()
+    let outcome = shell::run();
+    control::close();
+    outcome
 }
 
 fn main() -> ExitCode {

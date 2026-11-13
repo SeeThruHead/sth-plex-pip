@@ -86,10 +86,7 @@ fn answer(
         Request::SignIn => (library, vec![settled(sign_in(identity, say))]),
         Request::Connect { token } => connect(identity, &token),
         other => {
-            let replies = library
-                .as_ref()
-                .map(|library| browse(library, other))
-                .unwrap_or_default();
+            let replies = library.as_ref().map(|library| browse(library, other)).unwrap_or_default();
             (library, replies)
         }
     }
@@ -122,10 +119,7 @@ fn connect(identity: &Identity, token: &str) -> (Option<Library>, Vec<Reply>) {
         .map(|servers| servers.into_iter().next())
         .map(|server| server.map(|server| Library::new(identity.clone(), server)));
     match library {
-        Ok(Some(library)) => (
-            Some(library.clone()),
-            vec![Reply::Connected { library }],
-        ),
+        Ok(Some(library)) => (Some(library.clone()), vec![Reply::Connected { library }]),
         Ok(None) => (None, vec![Reply::Failed(PlexError::NoServer.to_string())]),
         Err(error) => (None, vec![settled(Err(error))]),
     }
@@ -134,9 +128,7 @@ fn connect(identity: &Identity, token: &str) -> (Option<Library>, Vec<Reply>) {
 fn browse(library: &Library, request: Request) -> Vec<Reply> {
     match request {
         Request::Sections => vec![settled(library.sections().map(Reply::Sections))],
-        Request::List(listing) => vec![settled(
-            list(library, &listing).map(|items| Reply::Listed { listing, items }),
-        )],
+        Request::List(listing) => vec![settled(list(library, &listing).map(|items| Reply::Listed { listing, items }))],
         Request::Following { episode } => following(library, &episode).into_iter().collect(),
         Request::Report(progress) => failures(library.report(&progress)),
         Request::MarkWatched { rating_key } => failures(library.mark_watched(&rating_key)),
@@ -146,12 +138,7 @@ fn browse(library: &Library, request: Request) -> Vec<Reply> {
 
 fn following(library: &Library, episode: &Item) -> Option<Reply> {
     let season = episode.parent_rating_key.as_deref()?;
-    let items = library
-        .children(season)
-        .ok()?
-        .into_iter()
-        .filter(|other| other.index > episode.index)
-        .collect();
+    let items = library.children(season).ok()?.into_iter().filter(|other| other.index > episode.index).collect();
     Some(Reply::Following { rating_key: episode.rating_key.clone(), items })
 }
 

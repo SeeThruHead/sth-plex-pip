@@ -82,16 +82,11 @@ pub fn home() -> PathBuf {
 }
 
 pub fn runtime_dir() -> PathBuf {
-    std::env::var_os(HOME_OVERRIDE)
-        .map(PathBuf::from)
-        .or_else(dirs::runtime_dir)
-        .unwrap_or_else(home)
+    std::env::var_os(HOME_OVERRIDE).map(PathBuf::from).or_else(dirs::runtime_dir).unwrap_or_else(home)
 }
 
 fn read<T: DeserializeOwned>(name: &str) -> Option<T> {
-    fs::read_to_string(home().join(name))
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
+    fs::read_to_string(home().join(name)).ok().and_then(|text| serde_json::from_str(&text).ok())
 }
 
 #[cfg(unix)]

@@ -34,13 +34,10 @@ pub fn register(keys: &Hotkeys, commands: Sender<Command>, wake: Wake) -> Option
         if event.state != HotKeyState::Pressed {
             return;
         }
-        registered
-            .iter()
-            .filter(|(id, _)| *id == event.id)
-            .for_each(|(_, command)| {
-                let _ = commands.send(command.clone());
-                wake();
-            });
+        registered.iter().filter(|(id, _)| *id == event.id).for_each(|(_, command)| {
+            let _ = commands.send(command.clone());
+            wake();
+        });
     }));
     Some(manager)
 }

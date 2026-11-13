@@ -19,6 +19,10 @@ pub fn send(command: &Command) -> io::Result<()> {
         .map_err(|error| io::Error::new(error.kind(), "sth-plex-pip is not running"))
 }
 
+pub fn close() {
+    let _ = std::fs::remove_file(socket_path());
+}
+
 pub fn already_running() -> bool {
     UnixStream::connect(socket_path()).is_ok()
 }

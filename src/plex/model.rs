@@ -110,17 +110,12 @@ impl Item {
     }
 
     pub fn part_key(&self) -> Option<&str> {
-        self.media
-            .first()
-            .and_then(|media| media.parts.first())
-            .map(|part| part.key.as_str())
+        self.media.first().and_then(|media| media.parts.first()).map(|part| part.key.as_str())
     }
 
     pub fn watched(&self) -> bool {
         match self.kind() {
-            ItemKind::Show | ItemKind::Season => {
-                self.leaf_count.is_some() && self.leaf_count == self.viewed_leaf_count
-            }
+            ItemKind::Show | ItemKind::Season => self.leaf_count.is_some() && self.leaf_count == self.viewed_leaf_count,
             _ => self.view_count.unwrap_or(0) > 0,
         }
     }
@@ -154,9 +149,7 @@ fn episode_label(item: &Item) -> String {
 }
 
 fn movie_label(item: &Item) -> String {
-    item.year
-        .map(|year| format!("{} ({year})", item.title))
-        .unwrap_or_else(|| item.title.clone())
+    item.year.map(|year| format!("{} ({year})", item.title)).unwrap_or_else(|| item.title.clone())
 }
 
 #[derive(Debug, Deserialize)]

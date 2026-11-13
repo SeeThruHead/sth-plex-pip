@@ -11,6 +11,8 @@ pub fn send(_: &Command) -> io::Result<()> {
     ))
 }
 
+pub fn close() {}
+
 pub fn already_running() -> bool {
     false
 }

@@ -4,6 +4,6 @@ mod unix;
 mod unsupported;
 
 #[cfg(unix)]
-pub use unix::{already_running, listen, send};
+pub use unix::{already_running, close, listen, send};
 #[cfg(not(unix))]
-pub use unsupported::{already_running, listen, send};
+pub use unsupported::{already_running, close, listen, send};

@@ -41,7 +41,7 @@ pub struct Wants {
 }
 
 enum Session {
-    SignedOut { waiting: bool, notice: Option<String> },
+    SignedOut { waiting: bool, notice: Option<String>, link: Option<String> },
     Connecting,
     Ready(Library),
 }
@@ -66,6 +66,7 @@ pub struct App {
     session: Session,
     browser: Browser,
     now: Option<NowPlaying>,
+    wanted: Option<String>,
     controls_wanted: bool,
     hidden: bool,
     quit: bool,
@@ -103,7 +104,7 @@ impl App {
                 plex.ask(Request::Connect { token: token.clone() });
                 Session::Connecting
             }
-            None => Session::SignedOut { waiting: false, notice: None },
+            None => Session::SignedOut { waiting: false, notice: None, link: None },
         };
         Ok(Self {
             target: crate::video::VideoTarget::new(gl.clone()),
@@ -118,12 +119,14 @@ impl App {
             session,
             browser: Browser::default(),
             now: None,
+            wanted: None,
             controls_wanted: false,
             hidden: false,
             quit: false,
         })
     }
 
+    #[cfg(not(target_os = "linux"))]
     pub fn context(&self) -> egui::Context {
         self.context.clone()
     }
@@ -230,16 +233,31 @@ impl App {
             Command::Seek { seconds } => self.player.seek_by(seconds),
             Command::Volume { change } => self.set_volume(self.player.playback().volume + change),
             Command::Hide => self.toggle_hidden(),
-            Command::Opacity { change } => self.save(Settings {
-                opacity: (self.settings.opacity + change).clamp(0.2, 1.0),
-                ..self.settings.clone()
-            }),
+            Command::Opacity { change } => self
+                .save(Settings { opacity: (self.settings.opacity + change).clamp(0.2, 1.0), ..self.settings.clone() }),
             Command::Corner { corner } => self.save(Settings { corner, ..self.settings.clone() }),
+            Command::Play { words } => self.play_matching(words.join(" ")),
             Command::Stop => self.stop(),
             Command::Quit => {
                 self.report(PlayState::Stopped);
                 self.quit = true;
             }
+        }
+    }
+
+    fn play_matching(&mut self, words: String) {
+        if words.trim().is_empty() {
+            self.play_first(self.browser.on_deck.clone());
+            return;
+        }
+        self.wanted = Some(words.clone());
+        self.plex.ask(Request::List(Listing::Search(words)));
+    }
+
+    fn play_first(&mut self, items: Vec<Item>) {
+        match items.into_iter().find(Item::playable) {
+            Some(item) => self.play(item, vec![]),
+            None => self.browser.notice = Some("Nothing playable matched.".into()),
         }
     }
 
@@ -261,7 +279,7 @@ impl App {
         self.auth = Auth { token: None, ..self.auth.clone() };
         let _ = store::save_auth(&self.auth);
         self.browser = Browser::default();
-        self.session = Session::SignedOut { waiting: false, notice };
+        self.session = Session::SignedOut { waiting: false, notice, link: None };
     }
 
     fn open(&mut self, listing: Listing) {
@@ -281,10 +299,9 @@ impl App {
         match action {
             Action::SignIn => {
                 self.plex.ask(Request::SignIn);
-                self.session = Session::SignedOut { waiting: true, notice: None };
+                self.session = Session::SignedOut { waiting: true, notice: None, link: None };
             }
             Action::SignOut => self.sign_out(None),
-            Action::Home => self.browser.trail.clear(),
             Action::Back => {
                 self.browser.trail.pop();
             }
@@ -305,6 +322,11 @@ impl App {
             self.browser.on_deck = items;
             return;
         }
+        if self.wanted.as_ref().is_some_and(|words| listing == Listing::Search(words.clone())) {
+            self.wanted = None;
+            self.play_first(items);
+            return;
+        }
         self.browser.trail = std::mem::take(&mut self.browser.trail)
             .into_iter()
             .map(|page| if page.listing == listing { Page { items: Some(items.clone()), ..page } } else { page })
@@ -319,7 +341,9 @@ impl App {
 
     fn hear(&mut self, reply: Reply) {
         match reply {
-            Reply::SignInOpened { .. } => {}
+            Reply::SignInOpened { url } => {
+                self.session = Session::SignedOut { waiting: true, notice: None, link: Some(url) };
+            }
             Reply::SignedIn { token } => {
                 self.auth = Auth { token: Some(token.clone()), ..self.auth.clone() };
                 let _ = store::save_auth(&self.auth);
@@ -343,7 +367,7 @@ impl App {
     fn complain(&mut self, message: String) {
         match self.session {
             Session::Ready(_) => self.browser.notice = Some(message),
-            _ => self.session = Session::SignedOut { waiting: false, notice: Some(message) },
+            _ => self.session = Session::SignedOut { waiting: false, notice: Some(message), link: None },
         }
     }
 
@@ -400,7 +424,9 @@ impl App {
             return ui::controls(ui, &watching);
         }
         match &self.session {
-            Session::SignedOut { waiting, notice } => ui::sign_in(ui, *waiting, notice.as_deref()),
+            Session::SignedOut { waiting, notice, link } => {
+                ui::sign_in(ui, *waiting, notice.as_deref(), link.as_deref())
+            }
             Session::Connecting => ui::connecting(ui),
             Session::Ready(_) => ui::browser(ui, &mut self.browser),
         }
@@ -416,8 +442,7 @@ impl App {
             self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
             self.gl.clear(glow::COLOR_BUFFER_BIT);
         }
-        self.painter
-            .paint_and_update_textures(pixels, output.pixels_per_point, &primitives, &mut textures);
+        self.painter.paint_and_update_textures(pixels, output.pixels_per_point, &primitives, &mut textures);
     }
 
     pub fn frame(&mut self, input: FrameInput) -> Wants {

@@ -36,13 +36,7 @@ fn surface(gl: &glow::Context, size: [i32; 2]) -> Option<Surface> {
         gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
         let framebuffer = gl.create_framebuffer().ok()?;
         gl.bind_framebuffer(glow::FRAMEBUFFER, Some(framebuffer));
-        gl.framebuffer_texture_2d(
-            glow::FRAMEBUFFER,
-            glow::COLOR_ATTACHMENT0,
-            glow::TEXTURE_2D,
-            Some(texture),
-            0,
-        );
+        gl.framebuffer_texture_2d(glow::FRAMEBUFFER, glow::COLOR_ATTACHMENT0, glow::TEXTURE_2D, Some(texture), 0);
         gl.bind_framebuffer(glow::FRAMEBUFFER, None);
         Some(Surface { texture, framebuffer, size })
     }
@@ -81,17 +75,12 @@ impl VideoTarget {
         }
         self.release();
         self.surface = surface(&self.gl, size);
-        self.texture_id = self
-            .surface
-            .as_ref()
-            .map(|surface| surface.texture)
-            .map(|texture| self.register(painter, texture));
+        self.texture_id =
+            self.surface.as_ref().map(|surface| surface.texture).map(|texture| self.register(painter, texture));
     }
 
     pub fn framebuffer(&self) -> Option<(i32, [i32; 2])> {
-        self.surface
-            .as_ref()
-            .map(|surface| (surface.framebuffer.0.get() as i32, surface.size))
+        self.surface.as_ref().map(|surface| (surface.framebuffer.0.get() as i32, surface.size))
     }
 
     pub fn texture(&self) -> Option<egui::TextureId> {

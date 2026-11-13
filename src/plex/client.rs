@@ -74,16 +74,11 @@ pub struct Progress {
 }
 
 fn agent(timeout: Duration) -> Agent {
-    Agent::config_builder()
-        .timeout_global(Some(timeout))
-        .build()
-        .into()
+    Agent::config_builder().timeout_global(Some(timeout)).build().into()
 }
 
 fn device_name() -> String {
-    std::env::var("HOSTNAME")
-        .or_else(|_| std::env::var("COMPUTERNAME"))
-        .unwrap_or_else(|_| PRODUCT.to_string())
+    std::env::var("HOSTNAME").or_else(|_| std::env::var("COMPUTERNAME")).unwrap_or_else(|_| PRODUCT.to_string())
 }
 
 fn identified<B>(
@@ -128,8 +123,7 @@ pub fn claimed_token(identity: &Identity, pin: &Pin) -> PlexResult<Option<String
 }
 
 fn resources(identity: &Identity, token: &str) -> PlexResult<Vec<Resource>> {
-    let request = agent(Duration::from_secs(20))
-        .get(format!("{PLEX_TV}/resources?includeHttps=1&includeRelay=1"));
+    let request = agent(Duration::from_secs(20)).get(format!("{PLEX_TV}/resources?includeHttps=1&includeRelay=1"));
     json(identified(request, identity, Some(token)).call())
 }
 
@@ -153,14 +147,11 @@ fn reachable(identity: &Identity, resource: &Resource) -> Option<Server> {
         connections.sort_by_key(connection_rank);
         connections
     };
-    ranked
-        .iter()
-        .find(|connection| answers(identity, &connection.uri, &token))
-        .map(|connection| Server {
-            name: resource.name.clone(),
-            uri: connection.uri.clone(),
-            token,
-        })
+    ranked.iter().find(|connection| answers(identity, &connection.uri, &token)).map(|connection| Server {
+        name: resource.name.clone(),
+        uri: connection.uri.clone(),
+        token,
+    })
 }
 
 pub fn servers(identity: &Identity, token: &str) -> PlexResult<Vec<Server>> {
@@ -184,11 +175,7 @@ pub struct Library {
 
 impl Library {
     pub fn new(identity: Identity, server: Server) -> Self {
-        Self {
-            identity,
-            server,
-            agent: agent(Duration::from_secs(30)),
-        }
+        Self { identity, server, agent: agent(Duration::from_secs(30)) }
     }
 
     pub fn server(&self) -> &Server {
@@ -212,10 +199,7 @@ impl Library {
         json::<Envelope<Sections>>(self.get("/library/sections").call())
             .map(|envelope| envelope.container.sections)
             .map(|sections| {
-                sections
-                    .into_iter()
-                    .filter(|section| matches!(section.kind.as_str(), "movie" | "show"))
-                    .collect()
+                sections.into_iter().filter(|section| matches!(section.kind.as_str(), "movie" | "show")).collect()
             })
     }
 
@@ -225,11 +209,6 @@ impl Library {
 
     pub fn children(&self, rating_key: &str) -> PlexResult<Vec<Item>> {
         self.items(self.get(&format!("/library/metadata/{rating_key}/children")))
-    }
-
-    pub fn item(&self, rating_key: &str) -> PlexResult<Option<Item>> {
-        self.items(self.get(&format!("/library/metadata/{rating_key}")))
-            .map(|items| items.into_iter().next())
     }
 
     pub fn on_deck(&self) -> PlexResult<Vec<Item>> {

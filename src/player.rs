@@ -16,9 +16,7 @@ pub struct GlLookup {
 }
 
 pub fn proc_address(lookup: &GlLookup, name: &str) -> *mut c_void {
-    CString::new(name)
-        .map(|name| lookup.display.get_proc_address(&name) as *mut c_void)
-        .unwrap_or(std::ptr::null_mut())
+    CString::new(name).map(|name| lookup.display.get_proc_address(&name) as *mut c_void).unwrap_or(std::ptr::null_mut())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -98,7 +96,12 @@ impl Player {
         wayland_display: Option<*const c_void>,
         wake: Wake,
     ) -> libmpv2::Result<Self> {
-        let mpv: &'static Mpv = Box::leak(Box::new(configured()?));
+        let mpv: &'static Mpv = {
+            let mut mpv = configured()?;
+            let on_event = wake.clone();
+            mpv.set_wakeup_callback(move || on_event());
+            Box::leak(Box::new(mpv))
+        };
         let params = [
             Some(RenderParam::ApiType(RenderParamApiType::OpenGl)),
             Some(RenderParam::InitParams(OpenGLInitParams { get_proc_address, ctx: lookup })),
@@ -114,8 +117,7 @@ impl Player {
     }
 
     pub fn load(&self, url: &str, token: &str, start_seconds: f64) -> libmpv2::Result<()> {
-        self.mpv
-            .set_property("http-header-fields", format!("X-Plex-Token: {token}"))?;
+        self.mpv.set_property("http-header-fields", format!("X-Plex-Token: {token}"))?;
         self.mpv.set_property("pause", false)?;
         let start = format!("start={start_seconds:.3}");
         self.mpv.command("loadfile", &[url, "replace", "-1", &start])
@@ -169,10 +171,7 @@ impl Player {
             position: self.number("time-pos").unwrap_or(0.0),
             duration: self.number("duration").unwrap_or(0.0),
             volume: self.number("volume").unwrap_or(100.0),
-            aspect: self
-                .number("video-params/aspect")
-                .filter(|aspect| *aspect > 0.1)
-                .map(|aspect| aspect as f32),
+            aspect: self.number("video-params/aspect").filter(|aspect| *aspect > 0.1).map(|aspect| aspect as f32),
         }
     }
 
@@ -196,12 +195,8 @@ impl Player {
     pub fn events(&self) -> Vec<PlayerEvent> {
         std::iter::from_fn(|| self.mpv.wait_event(0.0))
             .filter_map(|event| match event {
-                Ok(Event::EndFile(reason)) if reason == mpv_end_file_reason::Eof => {
-                    Some(PlayerEvent::Finished)
-                }
-                Ok(Event::EndFile(reason)) if reason == mpv_end_file_reason::Error => {
-                    Some(PlayerEvent::Failed)
-                }
+                Ok(Event::EndFile(reason)) if reason == mpv_end_file_reason::Eof => Some(PlayerEvent::Finished),
+                Ok(Event::EndFile(reason)) if reason == mpv_end_file_reason::Error => Some(PlayerEvent::Failed),
                 _ => None,
             })
             .collect()

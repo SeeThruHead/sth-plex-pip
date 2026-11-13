@@ -54,6 +54,7 @@ impl Rect {
         Self { x: self.x + dx, y: self.y + dy, ..*self }
     }
 
+    #[cfg(any(target_os = "linux", test))]
     pub fn size(&self) -> Size {
         Size { width: self.width, height: self.height }
     }
@@ -151,9 +152,7 @@ mod tests {
     fn every_corner_is_its_own_nearest_corner() {
         [Corner::TopLeft, Corner::TopRight, Corner::BottomLeft, Corner::BottomRight]
             .into_iter()
-            .for_each(|corner| {
-                assert_eq!(nearest_corner(SCREEN, in_corner(SCREEN, SMALL, corner)), corner)
-            });
+            .for_each(|corner| assert_eq!(nearest_corner(SCREEN, in_corner(SCREEN, SMALL, corner)), corner));
     }
 
     #[test]
