@@ -52,8 +52,8 @@ extern "C" fn no(_: &AnyObject, _: Sel) -> Bool {
 fn build_panel_class() -> Option<&'static AnyClass> {
     let mut builder = ClassBuilder::new(PANEL_CLASS, class!(NSPanel))?;
     unsafe {
-        builder.add_method(sel!(canBecomeKeyWindow), yes as extern "C" fn(&AnyObject, Sel) -> Bool);
-        builder.add_method(sel!(canBecomeMainWindow), no as extern "C" fn(&AnyObject, Sel) -> Bool);
+        builder.add_method(sel!(canBecomeKeyWindow), yes as extern "C" fn(_, _) -> _);
+        builder.add_method(sel!(canBecomeMainWindow), no as extern "C" fn(_, _) -> _);
     }
     Some(builder.register())
 }
