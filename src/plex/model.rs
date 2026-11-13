@@ -182,9 +182,84 @@ pub struct Hubs {
     pub hubs: Vec<Hub>,
 }
 
+fn plain(text: &str) -> String {
+    text.to_lowercase()
+        .split(|letter: char| !letter.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn is_year(word: &str) -> bool {
+    word.len() == 4 && word.chars().all(|letter| letter.is_ascii_digit())
+}
+
+pub fn without_year(words: &str) -> String {
+    let all: Vec<&str> = words.split_whitespace().collect();
+    match all.split_last() {
+        Some((last, title)) if is_year(last) && !title.is_empty() => title.join(" "),
+        _ => all.join(" "),
+    }
+}
+
+fn names(item: &Item) -> [String; 2] {
+    let with_year = item.year.map(|year| format!("{} {year}", item.title)).unwrap_or_default();
+    [plain(&item.title), plain(&with_year)]
+}
+
+fn closeness(item: &Item, wanted: &str) -> u8 {
+    let names = names(item);
+    if names.iter().any(|name| name == wanted) {
+        return 0;
+    }
+    if names.iter().any(|name| name.starts_with(wanted)) {
+        return 1;
+    }
+    2
+}
+
+pub fn best_match<'a>(items: &'a [Item], words: &str) -> Option<&'a Item> {
+    let wanted = plain(words);
+    items
+        .iter()
+        .filter(|item| item.playable())
+        .min_by_key(|item| (closeness(item, &wanted), item.kind() != ItemKind::Movie))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn titled(kind: &str, title: &str, year: u32) -> Item {
+        serde_json::from_str(&format!(
+            r#"{{"ratingKey":"{title}","key":"/k","type":"{kind}","title":"{title}","year":{year}}}"#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn asking_for_a_film_by_name_beats_an_episode_that_only_mentions_it() {
+        let found = [
+            titled("episode", "American Poison", 2023),
+            titled("show", "Poison", 2020),
+            titled("movie", "Poison", 2023),
+        ];
+        assert_eq!(best_match(&found, "poison").map(|item| item.kind()), Some(ItemKind::Movie));
+        assert_eq!(best_match(&found, "Poison 2023").map(|item| item.kind()), Some(ItemKind::Movie));
+        assert_eq!(best_match(&found, "american").map(|item| item.title.as_str()), Some("American Poison"));
+    }
+
+    #[test]
+    fn a_trailing_year_is_left_out_of_the_search_but_a_title_that_is_a_year_is_kept() {
+        assert_eq!(without_year("poison 2023"), "poison");
+        assert_eq!(without_year("2012"), "2012");
+        assert_eq!(without_year("blade runner 2049"), "blade runner");
+    }
+
+    #[test]
+    fn nothing_playable_means_no_match() {
+        assert_eq!(best_match(&[titled("show", "Poison", 2020)], "poison"), None);
+    }
 
     fn episode() -> Item {
         serde_json::from_str(

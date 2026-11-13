@@ -9,7 +9,7 @@ use crate::command::Command;
 use crate::placement::{self, Corner, Gesture, Size};
 use crate::player::{Playback, Player, PlayerEvent, TrackKind};
 use crate::plex::client::{Identity, Library, PlayState, Progress};
-use crate::plex::model::Item;
+use crate::plex::model::{self, Item};
 use crate::plex::worker::{Listing, PlexWorker, Reply, Request, Wake};
 use crate::presence::{Look, Presence};
 use crate::store::{self, Auth, Settings};
@@ -249,15 +249,15 @@ impl App {
 
     fn play_matching(&mut self, words: String) {
         if words.trim().is_empty() {
-            self.play_first(self.browser.on_deck.clone());
+            self.play_found(self.browser.on_deck.first().cloned());
             return;
         }
-        self.wanted = Some(words.clone());
-        self.plex.ask(Request::List(Listing::Search(words)));
+        self.plex.ask(Request::List(Listing::Search(model::without_year(&words))));
+        self.wanted = Some(words);
     }
 
-    fn play_first(&mut self, items: Vec<Item>) {
-        match items.into_iter().find(Item::playable) {
+    fn play_found(&mut self, found: Option<Item>) {
+        match found {
             Some(item) => self.play(item, vec![]),
             None => self.browser.notice = Some("Nothing playable matched.".into()),
         }
@@ -329,9 +329,8 @@ impl App {
             self.browser.on_deck = items;
             return;
         }
-        if self.wanted.as_ref().is_some_and(|words| listing == Listing::Search(words.clone())) {
-            self.wanted = None;
-            self.play_first(items);
+        if let Some(words) = self.wanted.take_if(|words| listing == Listing::Search(model::without_year(words))) {
+            self.play_found(model::best_match(&items, &words).cloned());
             return;
         }
         self.browser.trail = std::mem::take(&mut self.browser.trail)
