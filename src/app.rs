@@ -6,7 +6,7 @@ use egui_glow::Painter;
 use egui_glow::glow::{self, HasContext};
 
 use crate::command::Command;
-use crate::placement::{self, Corner, Size};
+use crate::placement::{self, Corner, Gesture, Size};
 use crate::player::{Playback, Player, PlayerEvent, TrackKind};
 use crate::plex::client::{Identity, Library, PlayState, Progress};
 use crate::plex::model::Item;
@@ -25,12 +25,7 @@ pub struct FrameInput {
     pub pixels: [u32; 2],
     pub hovered: bool,
     pub modifier_held: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Gesture {
-    Move,
-    Resize,
+    pub window_fades: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -129,8 +124,8 @@ impl App {
         })
     }
 
-    pub fn settings(&self) -> &Settings {
-        &self.settings
+    pub fn context(&self) -> egui::Context {
+        self.context.clone()
     }
 
     pub fn placed(&mut self, corner: Corner, width: f32) {
@@ -434,10 +429,11 @@ impl App {
         if playing && look.visible {
             self.draw_video(input.pixels);
         }
+        let painted = Look { opacity: if input.window_fades { 1.0 } else { look.opacity }, ..look };
         let context = self.context.clone();
         let mut actions: Vec<Action> = vec![];
         let output = context.run_ui(input.raw, |ui| {
-            actions = self.screen(ui, look, &playback);
+            actions = self.screen(ui, painted, &playback);
         });
         let gesture = actions.into_iter().filter_map(|action| self.act(action)).next_back();
         let repaint = output

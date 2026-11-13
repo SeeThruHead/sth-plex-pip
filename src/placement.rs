@@ -87,9 +87,49 @@ pub fn resized(rect: Rect, corner: Corner, dx: f32, dy: f32, aspect: f32, screen
     in_corner(screen, size, corner)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Gesture {
+    Move,
+    Resize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Drag {
+    pub gesture: Gesture,
+    pub from: Rect,
+    pub corner: Corner,
+    pub aspect: f32,
+}
+
+impl Drag {
+    pub fn after(&self, dx: f32, dy: f32, screen: Size) -> Rect {
+        match self.gesture {
+            Gesture::Move => self.from.moved(dx, dy),
+            Gesture::Resize => resized(self.from, self.corner, dx, dy, self.aspect, screen),
+        }
+    }
+
+    pub fn dropped_in(&self, rect: Rect, screen: Size) -> Corner {
+        match self.gesture {
+            Gesture::Move => nearest_corner(screen, rect),
+            Gesture::Resize => self.corner,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_move_lands_in_the_nearest_corner_and_a_resize_stays_put() {
+        let from = in_corner(SCREEN, SMALL, Corner::BottomRight);
+        let drag = |gesture| Drag { gesture, from, corner: Corner::BottomRight, aspect: 16.0 / 9.0 };
+        let moved = drag(Gesture::Move).after(-1200.0, -700.0, SCREEN);
+        assert_eq!(drag(Gesture::Move).dropped_in(moved, SCREEN), Corner::TopLeft);
+        let grown = drag(Gesture::Resize).after(-1200.0, -700.0, SCREEN);
+        assert_eq!(drag(Gesture::Resize).dropped_in(grown, SCREEN), Corner::BottomRight);
+    }
 
     const SCREEN: Size = Size { width: 1920.0, height: 1080.0 };
     const SMALL: Size = Size { width: 480.0, height: 270.0 };

@@ -2284,6 +2284,7 @@ dependencies = [
  "glutin",
  "glutin-winit",
  "libmpv2",
+ "objc2 0.5.3",
  "raw-window-handle",
  "serde",
  "serde_json",
@@ -2291,6 +2292,7 @@ dependencies = [
  "ureq",
  "uuid",
  "wayland-backend",
+ "windows-sys 0.59.0",
  "winit",
 ]
 

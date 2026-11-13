@@ -1,4 +1,6 @@
-use std::ffi::c_void;
+use std::ffi::{CString, c_void};
+
+use glutin::display::GlDisplay;
 
 use libmpv2::Mpv;
 use libmpv2::events::Event;
@@ -11,6 +13,12 @@ pub type ProcAddress = fn(&GlLookup, &str) -> *mut c_void;
 
 pub struct GlLookup {
     pub display: glutin::display::Display,
+}
+
+pub fn proc_address(lookup: &GlLookup, name: &str) -> *mut c_void {
+    CString::new(name)
+        .map(|name| lookup.display.get_proc_address(&name) as *mut c_void)
+        .unwrap_or(std::ptr::null_mut())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

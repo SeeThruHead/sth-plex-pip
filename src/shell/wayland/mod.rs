@@ -36,10 +36,10 @@ use smithay_client_toolkit::shell::wlr_layer::{
 use smithay_client_toolkit::shm::{Shm, ShmHandler};
 use smithay_client_toolkit::{delegate_registry, registry_handlers};
 
-use crate::app::{App, FrameInput, Gesture, Wants};
+use crate::app::{App, FrameInput, Wants};
 use crate::command::Command;
 use crate::control;
-use crate::placement::{self, Rect, Size};
+use crate::placement::{self, Drag, Rect, Size};
 use crate::player::Player;
 use crate::plex::worker::Wake;
 
@@ -49,12 +49,6 @@ use hyprland::CursorProbe;
 const NAMESPACE: &str = "sth-plex-pip";
 const HEARTBEAT: Duration = Duration::from_millis(80);
 const FIRST_SIZE: Size = Size { width: 560.0, height: 420.0 };
-
-struct Drag {
-    gesture: Gesture,
-    from: Rect,
-    travelled: (f32, f32),
-}
 
 struct Overlay {
     registry: RegistryState,
@@ -81,7 +75,7 @@ struct Overlay {
     cursor_over: bool,
     rect: Rect,
     scale: i32,
-    drag: Option<Drag>,
+    drag: Option<(Drag, (f32, f32))>,
     wants: Option<Wants>,
     click_through: Option<bool>,
     keyboard_on: Option<bool>,
@@ -149,7 +143,7 @@ impl Overlay {
         let graphics = graphics::open(display, surface, self.pixels())?;
         let player = Player::new(
             graphics.lookup(),
-            graphics::proc_address,
+            crate::player::proc_address,
             Some(display.as_ptr() as *const c_void),
             self.wake.clone(),
         )
@@ -197,7 +191,8 @@ impl Overlay {
         self.set_keyboard(wants.keyboard);
         self.repaint_at = wants.repaint_after.map(|delay| Instant::now() + delay);
         if let (Some(gesture), None) = (wants.gesture, &self.drag) {
-            self.drag = Some(Drag { gesture, from: self.rect, travelled: (0.0, 0.0) });
+            let drag = Drag { gesture, from: self.rect, corner: wants.corner, aspect: wants.aspect };
+            self.drag = Some((drag, (0.0, 0.0)));
         }
         if self.drag.is_none() {
             self.place(self.resting_rect(&wants));
@@ -232,6 +227,7 @@ impl Overlay {
             pixels: self.pixels(),
             hovered: self.pointer_inside || self.cursor_over,
             modifier_held: false,
+            window_fades: false,
         };
         let wants = self.app.as_mut().map(|app| app.frame(input));
         if let Some(graphics) = &self.graphics {
@@ -259,22 +255,15 @@ impl Overlay {
     }
 
     fn dragged(&mut self, dx: f32, dy: f32) {
-        let (Some(drag), Some(wants)) = (self.drag.as_mut(), self.wants) else { return };
-        drag.travelled = (drag.travelled.0 + dx, drag.travelled.1 + dy);
-        let (x, y) = drag.travelled;
-        let rect = match drag.gesture {
-            Gesture::Move => drag.from.moved(x, y),
-            Gesture::Resize => placement::resized(drag.from, wants.corner, x, y, wants.aspect, self.screen()),
-        };
-        self.place(rect);
+        let Some((drag, travelled)) = self.drag else { return };
+        let travelled = (travelled.0 + dx, travelled.1 + dy);
+        self.drag = Some((drag, travelled));
+        self.place(drag.after(travelled.0, travelled.1, self.screen()));
     }
 
     fn dropped(&mut self) {
-        let Some(drag) = self.drag.take() else { return };
-        let corner = match (drag.gesture, self.wants) {
-            (Gesture::Resize, Some(wants)) => wants.corner,
-            _ => placement::nearest_corner(self.screen(), self.rect),
-        };
+        let Some((drag, _)) = self.drag.take() else { return };
+        let corner = drag.dropped_in(self.rect, self.screen());
         let width = self.rect.width;
         if let Some(app) = self.app.as_mut() {
             app.placed(corner, width);

@@ -1,4 +1,4 @@
-use std::ffi::{CString, c_void};
+use std::ffi::c_void;
 use std::num::NonZeroU32;
 use std::ptr::NonNull;
 use std::sync::Arc;
@@ -22,12 +22,6 @@ pub struct Graphics {
 
 fn dimension(value: u32) -> NonZeroU32 {
     NonZeroU32::new(value).unwrap_or(NonZeroU32::MIN)
-}
-
-pub fn proc_address(lookup: &GlLookup, name: &str) -> *mut c_void {
-    CString::new(name)
-        .map(|name| lookup.display.get_proc_address(&name) as *mut c_void)
-        .unwrap_or(std::ptr::null_mut())
 }
 
 pub fn open(
