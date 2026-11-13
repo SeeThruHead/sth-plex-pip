@@ -1,13 +1,16 @@
+mod engine;
+
 use std::ffi::{CString, c_void};
+use std::mem::ManuallyDrop;
+use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Mutex};
 
 use glutin::display::GlDisplay;
-
 use libmpv2::Mpv;
-use libmpv2::events::Event;
-use libmpv2::mpv_end_file_reason;
 use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
 
 use crate::plex::worker::Wake;
+use engine::{Ask, Seen, Shared};
 
 pub type ProcAddress = fn(&GlLookup, &str) -> *mut c_void;
 
@@ -66,8 +69,10 @@ pub enum PlayerEvent {
 }
 
 pub struct Player {
-    mpv: &'static Mpv,
-    render: RenderContext<'static>,
+    render: ManuallyDrop<RenderContext<'static>>,
+    asks: Sender<Ask>,
+    events: Receiver<PlayerEvent>,
+    shared: Shared,
 }
 
 fn configured() -> libmpv2::Result<Mpv> {
@@ -96,12 +101,7 @@ impl Player {
         wayland_display: Option<*const c_void>,
         wake: Wake,
     ) -> libmpv2::Result<Self> {
-        let mpv: &'static Mpv = {
-            let mut mpv = configured()?;
-            let on_event = wake.clone();
-            mpv.set_wakeup_callback(move || on_event());
-            Box::leak(Box::new(mpv))
-        };
+        let mpv: &'static Mpv = Box::leak(Box::new(configured()?));
         let params = [
             Some(RenderParam::ApiType(RenderParamApiType::OpenGl)),
             Some(RenderParam::InitParams(OpenGLInitParams { get_proc_address, ctx: lookup })),
@@ -113,93 +113,67 @@ impl Player {
             render.set_update_callback(move || on_frame());
             render
         };
-        Ok(Self { mpv, render })
+        let (asks, asked) = channel::<Ask>();
+        let (ended, events) = channel::<PlayerEvent>();
+        let shared: Shared = Arc::new(Mutex::new(Seen::default()));
+        engine::obey(mpv, asked, ended.clone(), shared.clone(), wake.clone());
+        engine::watch(mpv, ended, shared.clone(), wake);
+        Ok(Self { render: ManuallyDrop::new(render), asks, events, shared })
     }
 
-    pub fn load(&self, url: &str, token: &str, start_seconds: f64) -> libmpv2::Result<()> {
-        self.mpv.set_property("http-header-fields", format!("X-Plex-Token: {token}"))?;
-        self.mpv.set_property("pause", false)?;
-        let start = format!("start={start_seconds:.3}");
-        self.mpv.command("loadfile", &[url, "replace", "-1", &start])
+    fn ask(&self, ask: Ask) {
+        let _ = self.asks.send(ask);
+    }
+
+    fn seen(&self) -> Seen {
+        self.shared.lock().map(|seen| seen.clone()).unwrap_or_default()
+    }
+
+    pub fn load(&self, url: &str, token: &str, start_seconds: f64) {
+        self.ask(Ask::Load { url: url.to_string(), token: token.to_string(), start_seconds });
     }
 
     pub fn stop(&self) {
-        let _ = self.mpv.command("stop", &[]);
+        self.ask(Ask::Stop);
     }
 
     pub fn set_paused(&self, paused: bool) {
-        let _ = self.mpv.set_property("pause", paused);
+        self.ask(Ask::SetPaused(paused));
     }
 
     pub fn toggle_pause(&self) {
-        self.set_paused(!self.flag("pause"));
+        self.ask(Ask::TogglePause);
     }
 
     pub fn seek_by(&self, seconds: f64) {
-        let _ = self.mpv.command("seek", &[&format!("{seconds}"), "relative"]);
+        self.ask(Ask::SeekBy(seconds));
     }
 
     pub fn seek_to(&self, seconds: f64) {
-        let _ = self.mpv.command("seek", &[&format!("{seconds}"), "absolute"]);
+        self.ask(Ask::SeekTo(seconds));
     }
 
     pub fn set_volume(&self, volume: f64) {
-        let _ = self.mpv.set_property("volume", volume.clamp(0.0, 130.0));
+        self.ask(Ask::SetVolume(volume));
     }
 
     pub fn select(&self, kind: TrackKind, id: Option<i64>) {
-        let value = id.map(|id| id.to_string()).unwrap_or_else(|| "no".into());
-        let _ = self.mpv.set_property(kind.property(), value);
-    }
-
-    fn flag(&self, name: &str) -> bool {
-        self.mpv.get_property::<bool>(name).unwrap_or(false)
-    }
-
-    fn number(&self, name: &str) -> Option<f64> {
-        self.mpv.get_property::<f64>(name).ok()
-    }
-
-    fn text(&self, name: &str) -> Option<String> {
-        self.mpv.get_property::<String>(name).ok().filter(|text| !text.is_empty())
+        self.ask(Ask::Select(kind, id));
     }
 
     pub fn playback(&self) -> Playback {
-        Playback {
-            idle: self.flag("idle-active"),
-            paused: self.flag("pause"),
-            position: self.number("time-pos").unwrap_or(0.0),
-            duration: self.number("duration").unwrap_or(0.0),
-            volume: self.number("volume").unwrap_or(100.0),
-            aspect: self.number("video-params/aspect").filter(|aspect| *aspect > 0.1).map(|aspect| aspect as f32),
-        }
-    }
-
-    fn track(&self, index: i64, kind: TrackKind) -> Option<Track> {
-        let field = |name: &str| format!("track-list/{index}/{name}");
-        if self.text(&field("type"))? != kind.type_name() {
-            return None;
-        }
-        let id = self.mpv.get_property::<i64>(&field("id")).ok()?;
-        let parts = [self.text(&field("lang")), self.text(&field("title")), self.text(&field("codec"))];
-        let described = parts.into_iter().flatten().collect::<Vec<_>>().join(" · ");
-        let label = if described.is_empty() { format!("Track {id}") } else { described };
-        Some(Track { id, kind, label, selected: self.flag(&field("selected")) })
+        self.seen().playback
     }
 
     pub fn tracks(&self, kind: TrackKind) -> Vec<Track> {
-        let count = self.mpv.get_property::<i64>("track-list/count").unwrap_or(0);
-        (0..count).filter_map(|index| self.track(index, kind)).collect()
+        match kind {
+            TrackKind::Audio => self.seen().audio,
+            TrackKind::Subtitle => self.seen().subtitles,
+        }
     }
 
     pub fn events(&self) -> Vec<PlayerEvent> {
-        std::iter::from_fn(|| self.mpv.wait_event(0.0))
-            .filter_map(|event| match event {
-                Ok(Event::EndFile(reason)) if reason == mpv_end_file_reason::Eof => Some(PlayerEvent::Finished),
-                Ok(Event::EndFile(reason)) if reason == mpv_end_file_reason::Error => Some(PlayerEvent::Failed),
-                _ => None,
-            })
-            .collect()
+        self.events.try_iter().collect()
     }
 
     pub fn draw(&self, framebuffer: i32, width: i32, height: i32) {

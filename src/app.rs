@@ -185,10 +185,7 @@ impl App {
             return;
         };
         let url = library.stream_url(part);
-        if let Err(error) = self.player.load(&url, &library.server().token, item.resume_seconds()) {
-            self.browser.notice = Some(format!("Could not start playback: {error}"));
-            return;
-        }
+        self.player.load(&url, &library.server().token, item.resume_seconds());
         if following.is_empty() {
             self.plex.ask(Request::Following { episode: Box::new(item.clone()) });
         }
