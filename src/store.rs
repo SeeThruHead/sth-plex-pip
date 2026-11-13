@@ -81,6 +81,7 @@ pub fn home() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(".").join(APP))
 }
 
+#[cfg(unix)]
 pub fn runtime_dir() -> PathBuf {
     std::env::var_os(HOME_OVERRIDE).map(PathBuf::from).or_else(dirs::runtime_dir).unwrap_or_else(home)
 }
