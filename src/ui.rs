@@ -12,6 +12,7 @@ const ACCENT: Color32 = Color32::from_rgb(229, 160, 13);
 const QUIET: Color32 = Color32::from_rgb(150, 150, 158);
 const BAR_HEIGHT: f32 = 30.0;
 const GRIP: f32 = 18.0;
+const MENU_MARGIN: f32 = 40.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
@@ -278,21 +279,25 @@ pub fn video(ui: &mut Ui, texture: Option<egui::TextureId>, opacity: f32) {
 }
 
 fn track_menu(ui: &mut Ui, icon: &str, kind: TrackKind, tracks: &[Track], can_turn_off: bool) -> Option<Action> {
+    let room = ui.ctx().content_rect().height() - MENU_MARGIN;
     ui.menu_button(icon, |ui| {
-        let none_selected = !tracks.iter().any(|track| track.selected);
-        let off = can_turn_off
-            .then(|| ui.radio(none_selected, "Off").clicked().then_some(Action::Select(kind, None)))
-            .flatten();
-        let picked = tracks
-            .iter()
-            .filter_map(|track| {
-                ui.radio(track.selected, &track.label).clicked().then_some(Action::Select(kind, Some(track.id)))
-            })
-            .next_back();
-        off.or(picked)
+        egui::ScrollArea::vertical().max_height(room).show(ui, |ui| track_choices(ui, kind, tracks, can_turn_off)).inner
     })
     .inner
     .flatten()
+}
+
+fn track_choices(ui: &mut Ui, kind: TrackKind, tracks: &[Track], can_turn_off: bool) -> Option<Action> {
+    let none_selected = !tracks.iter().any(|track| track.selected);
+    let off =
+        can_turn_off.then(|| ui.radio(none_selected, "Off").clicked().then_some(Action::Select(kind, None))).flatten();
+    let picked = tracks
+        .iter()
+        .filter_map(|track| {
+            ui.radio(track.selected, &track.label).clicked().then_some(Action::Select(kind, Some(track.id)))
+        })
+        .next_back();
+    off.or(picked)
 }
 
 fn top_bar(ui: &mut Ui, watching: &Watching) -> Vec<Action> {

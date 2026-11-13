@@ -80,12 +80,19 @@ fn tracks(mpv: &Mpv, kind: TrackKind) -> Vec<Track> {
     (0..count).filter_map(|index| track(mpv, index, kind)).collect()
 }
 
-fn look(mpv: &Mpv) -> Seen {
+fn look(mpv: &Mpv, before: &Seen, tracks_too: bool) -> Seen {
+    if !tracks_too {
+        return Seen { playback: playback(mpv), ..before.clone() };
+    }
     Seen { playback: playback(mpv), audio: tracks(mpv, TrackKind::Audio), subtitles: tracks(mpv, TrackKind::Subtitle) }
 }
 
-fn publish(mpv: &Mpv, shared: &Shared) -> bool {
-    let fresh = look(mpv);
+fn remembered(shared: &Shared) -> Seen {
+    shared.lock().map(|seen| seen.clone()).unwrap_or_default()
+}
+
+fn publish(mpv: &Mpv, shared: &Shared, tracks_too: bool) -> bool {
+    let fresh = look(mpv, &remembered(shared), tracks_too);
     shared.lock().map(|mut seen| std::mem::replace(&mut *seen, fresh.clone()) != fresh).unwrap_or(false)
 }
 
@@ -110,10 +117,10 @@ fn apply(mpv: &Mpv, ask: Ask) -> libmpv2::Result<()> {
     }
 }
 
-fn ended(event: Option<libmpv2::Result<Event<'_>>>) -> Option<PlayerEvent> {
+fn ended(event: libmpv2::Result<Event<'_>>) -> Option<PlayerEvent> {
     match event {
-        Some(Ok(Event::EndFile(reason))) if reason == mpv_end_file_reason::Eof => Some(PlayerEvent::Finished),
-        Some(Ok(Event::EndFile(reason))) if reason == mpv_end_file_reason::Error => Some(PlayerEvent::Failed),
+        Ok(Event::EndFile(reason)) if reason == mpv_end_file_reason::Eof => Some(PlayerEvent::Finished),
+        Ok(Event::EndFile(reason)) if reason == mpv_end_file_reason::Error => Some(PlayerEvent::Failed),
         _ => None,
     }
 }
@@ -124,7 +131,7 @@ pub fn obey(mpv: &'static Mpv, asks: Receiver<Ask>, events: Sender<PlayerEvent>,
             if apply(mpv, ask).is_err() {
                 let _ = events.send(PlayerEvent::Failed);
             }
-            publish(mpv, &shared);
+            publish(mpv, &shared, true);
             wake();
         })
     });
@@ -132,9 +139,9 @@ pub fn obey(mpv: &'static Mpv, asks: Receiver<Ask>, events: Sender<PlayerEvent>,
 
 pub fn watch(mpv: &'static Mpv, events: Sender<PlayerEvent>, shared: Shared, wake: Wake) {
     thread::spawn(move || {
-        std::iter::repeat_with(|| ended(mpv.wait_event(LOOK_EVERY_SECONDS))).for_each(|end| {
-            let told = end.map(|event| events.send(event)).is_some();
-            let changed = publish(mpv, &shared);
+        std::iter::repeat_with(|| mpv.wait_event(LOOK_EVERY_SECONDS).map(ended)).for_each(|happened| {
+            let told = happened.flatten().map(|event| events.send(event)).is_some();
+            let changed = publish(mpv, &shared, happened.is_some());
             if told || changed {
                 wake();
             }
