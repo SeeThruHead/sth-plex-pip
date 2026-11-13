@@ -24,7 +24,6 @@ pub struct Settings {
     pub opacity: f32,
     pub hover_opacity: f32,
     pub volume: f64,
-    pub monitor: Option<String>,
     pub update_plex: bool,
     pub hotkeys: Hotkeys,
 }
@@ -67,7 +66,6 @@ impl Default for Settings {
             opacity: 1.0,
             hover_opacity: 0.12,
             volume: 100.0,
-            monitor: None,
             update_plex: true,
             hotkeys: Hotkeys::default(),
         }

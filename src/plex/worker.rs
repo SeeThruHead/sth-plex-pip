@@ -6,7 +6,7 @@ use std::time::Duration;
 use super::client::{self, Identity, Library, PlexError, PlexResult, Progress};
 use super::model::{Item, Section};
 
-const SIGN_IN_POLLS: u32 = 150;
+const SIGN_IN_POLLS: u32 = 450;
 const SIGN_IN_POLL_GAP: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, PartialEq)]
