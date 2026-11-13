@@ -29,6 +29,7 @@ pub fn already_running() -> bool {
 
 pub fn listen(commands: Sender<Command>, wake: Wake) -> io::Result<()> {
     let path = socket_path();
+    std::fs::create_dir_all(store::runtime_dir())?;
     let _ = std::fs::remove_file(&path);
     let listener = UnixListener::bind(&path)?;
     thread::spawn(move || {
