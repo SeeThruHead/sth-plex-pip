@@ -27,7 +27,7 @@ A floating, click-through Plex player. Rust, libmpv for playback, egui for the i
 ## Rules
 
 - No loops, no comments, guard clauses instead of nested ifs. Mutation only where the toolkit's API needs it.
-- Anything that differs by system lives in `shell/` or behind a `cfg` in `control/` and `store.rs`. Nothing else names an operating system.
+- Anything that differs by system lives in `shell/` or behind a `cfg` in `control/` and `store.rs`. Elsewhere a `cfg` only marks something a single shell uses (such as `Activity`, which only the desktop shell reports).
 - `presence.rs` and `placement.rs` stay pure and tested; window behaviour is decided there, not in a shell.
 - Tests assert what a user would see (where the window lands, whether it takes clicks), never how the code got there.
 - The Plex token never goes in a URL, a log line or argv. mpv gets it as a request header.

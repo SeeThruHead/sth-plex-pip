@@ -28,8 +28,31 @@ pub struct FrameInput {
     pub window_fades: bool,
 }
 
+#[cfg(not(target_os = "linux"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Activity {
+    Idle,
+    Playing,
+    Paused,
+    Hidden,
+}
+
+#[cfg(not(target_os = "linux"))]
+impl Activity {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Playing => "playing",
+            Self::Paused => "paused",
+            Self::Hidden => "hidden",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Wants {
+    #[cfg(not(target_os = "linux"))]
+    pub activity: Activity,
     pub look: Look,
     pub size: Size,
     pub aspect: f32,
@@ -448,6 +471,17 @@ impl App {
         self.painter.paint_and_update_textures(pixels, output.pixels_per_point, &primitives, &mut textures);
     }
 
+    #[cfg(not(target_os = "linux"))]
+    fn activity(&self, playback: &Playback) -> Activity {
+        if self.hidden {
+            return Activity::Hidden;
+        }
+        if self.now.is_none() {
+            return Activity::Idle;
+        }
+        if playback.paused { Activity::Paused } else { Activity::Playing }
+    }
+
     pub fn frame(&mut self, input: FrameInput) -> Wants {
         self.tick();
         let playback = self.player.playback();
@@ -473,6 +507,8 @@ impl App {
         let aspect = playback.aspect.unwrap_or(WIDESCREEN);
         let still_playing = self.now.is_some();
         Wants {
+            #[cfg(not(target_os = "linux"))]
+            activity: self.activity(&playback),
             look: self.look(hovered, modifier_held),
             size: if still_playing { placement::sized(self.settings.width, aspect) } else { LIBRARY_SIZE },
             aspect,

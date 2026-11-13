@@ -24,7 +24,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::raw_window_handle::HasWindowHandle;
 use winit::window::{Window, WindowId, WindowLevel};
 
-use crate::app::{App, FrameInput, LIBRARY_SIZE, Wants};
+use crate::app::{Activity, App, FrameInput, LIBRARY_SIZE, Wants};
 use crate::command::Command;
 use crate::control;
 use crate::placement::{self, Drag, Rect, Size};
@@ -59,6 +59,7 @@ struct Desktop {
     opacity: Option<f32>,
     takes_keys: Option<bool>,
     visible: Option<bool>,
+    activity: Option<Activity>,
     repaint_at: Option<Instant>,
     next_beat: Instant,
     failure: Option<String>,
@@ -213,6 +214,14 @@ impl Desktop {
         }
     }
 
+    fn set_activity(&mut self, activity: Activity) {
+        if self.activity == Some(activity) {
+            return;
+        }
+        self.activity = Some(activity);
+        platform::announce(activity.name());
+    }
+
     fn begin_drag(&mut self, wants: &Wants) {
         let (Some(gesture), None, Some(from), Some(running)) = (wants.gesture, self.drag, self.rect, &self.running)
         else {
@@ -228,6 +237,7 @@ impl Desktop {
         self.set_click_through(!wants.look.takes_clicks);
         self.set_takes_keys(wants.keyboard);
         self.set_opacity(wants.look.opacity);
+        self.set_activity(wants.activity);
         self.repaint_at = wants.repaint_after.map(|delay| Instant::now() + delay);
         self.begin_drag(&wants);
         let resting = self.running.as_ref().map(|running| running.resting(&wants));
@@ -327,6 +337,7 @@ impl ApplicationHandler for Desktop {
     }
 
     fn exiting(&mut self, _: &ActiveEventLoop) {
+        platform::announce("stopped");
         self.running = None;
     }
 
@@ -373,6 +384,7 @@ pub fn run() -> Result<(), String> {
         opacity: None,
         takes_keys: None,
         visible: None,
+        activity: None,
         repaint_at: None,
         next_beat: Instant::now(),
         failure: None,

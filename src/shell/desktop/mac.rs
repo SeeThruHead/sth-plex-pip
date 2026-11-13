@@ -1,7 +1,7 @@
-use std::ffi::c_void;
+use std::ffi::{CString, c_void};
 
-use objc2::msg_send;
 use objc2::runtime::AnyObject;
+use objc2::{class, msg_send};
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
 
@@ -14,6 +14,8 @@ const ALL_SPACES: usize = 1 << 0;
 const STATIONARY: usize = 1 << 4;
 const IGNORES_CYCLE: usize = 1 << 6;
 const BESIDE_FULL_SCREEN: usize = 1 << 8;
+const SORTED_KEYS: usize = 1 << 1;
+const BUNDLE_ID: &str = "com.sth.plexpip";
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -60,6 +62,47 @@ pub fn set_opacity(window: &Window, opacity: f32) {
 }
 
 pub fn set_takes_keys(_: &Window, _: bool) {}
+
+fn ns_string(text: &str) -> *mut AnyObject {
+    let text = CString::new(text).unwrap_or_default();
+    unsafe { msg_send![class!(NSString), stringWithUTF8String: text.as_ptr()] }
+}
+
+fn timestamp() -> *mut AnyObject {
+    unsafe {
+        let formatter: *mut AnyObject = msg_send![class!(NSISO8601DateFormatter), new];
+        let now: *mut AnyObject = msg_send![class!(NSDate), date];
+        let stamp: *mut AnyObject = msg_send![formatter, stringFromDate: now];
+        let _: () = msg_send![formatter, release];
+        stamp
+    }
+}
+
+fn state_file() -> Option<*mut AnyObject> {
+    let folder = dirs::config_dir()?.join(BUNDLE_ID);
+    std::fs::create_dir_all(&folder).ok()?;
+    Some(ns_string(folder.join("state.json").to_str()?))
+}
+
+pub fn announce(state: &str) {
+    unsafe {
+        let fields: *mut AnyObject = msg_send![class!(NSMutableDictionary), dictionary];
+        let _: () = msg_send![fields, setObject: ns_string(state), forKey: ns_string("state")];
+        let _: () = msg_send![fields, setObject: ns_string(&std::process::id().to_string()), forKey: ns_string("pid")];
+        let _: () = msg_send![fields, setObject: timestamp(), forKey: ns_string("updatedAt")];
+        let no_error = std::ptr::null_mut::<*mut AnyObject>();
+        let json: *mut AnyObject =
+            msg_send![class!(NSJSONSerialization), dataWithJSONObject: fields, options: SORTED_KEYS, error: no_error];
+        if let (false, Some(file)) = (json.is_null(), state_file()) {
+            let _: bool = msg_send![json, writeToFile: file, atomically: true];
+        }
+        let center: *mut AnyObject = msg_send![class!(NSDistributedNotificationCenter), defaultCenter];
+        let name = ns_string(&format!("{BUNDLE_ID}.state"));
+        let nobody = std::ptr::null_mut::<AnyObject>();
+        let _: () =
+            msg_send![center, postNotificationName: name, object: nobody, userInfo: fields, deliverImmediately: true];
+    }
+}
 
 pub fn cursor(_scale: f64) -> Option<(f32, f32)> {
     unsafe {

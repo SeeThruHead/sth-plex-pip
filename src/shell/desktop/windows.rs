@@ -69,3 +69,5 @@ pub fn primary_button_down() -> bool {
 pub fn modifier_held() -> bool {
     down(VK_CONTROL) && down(VK_MENU)
 }
+
+pub fn announce(_: &str) {}
