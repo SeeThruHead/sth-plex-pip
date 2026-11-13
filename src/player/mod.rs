@@ -90,7 +90,7 @@ fn configured() -> libmpv2::Result<Mpv> {
         init.set_option("audio-client-name", "sth-plex-pip")?;
         init.set_option("demuxer-max-bytes", "256MiB")?;
         init.set_option("sub-auto", "no")?;
-        Ok(())
+        crate::store::mpv_log().map_or(Ok(()), |path| init.set_option("log-file", path))
     })
 }
 

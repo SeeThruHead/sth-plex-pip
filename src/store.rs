@@ -9,6 +9,11 @@ use crate::placement::Corner;
 
 const HOME_OVERRIDE: &str = "STH_PLEX_PIP_HOME";
 const APP: &str = "sth-plex-pip";
+const MPV_LOG: &str = "STH_PLEX_PIP_MPV_LOG";
+
+pub fn mpv_log() -> Option<String> {
+    std::env::var(MPV_LOG).ok().filter(|path| !path.is_empty())
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Auth {

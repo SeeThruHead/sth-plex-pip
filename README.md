@@ -65,7 +65,7 @@ hl.bind("CTRL + ALT + H", hl.dsp.exec_cmd("sth-plex-pip hide"))
 | `update_plex` | Report progress and watched state to Plex | `true` |
 | `hotkeys` | The global hotkeys (macOS and Windows) | see above |
 
-Set `STH_PLEX_PIP_HOME` to a folder to run a separate instance with its own sign-in and settings.
+Set `STH_PLEX_PIP_HOME` to a folder to run a separate instance with its own sign-in and settings. Set `STH_PLEX_PIP_MPV_LOG` to a file path to have mpv write its log there, which shows for example whether hardware decoding is in use.
 
 ## What each system allows
 
