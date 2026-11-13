@@ -36,7 +36,7 @@ use smithay_client_toolkit::shell::wlr_layer::{
 use smithay_client_toolkit::shm::{Shm, ShmHandler};
 use smithay_client_toolkit::{delegate_registry, registry_handlers};
 
-use crate::app::{App, FrameInput, Wants};
+use crate::app::{App, FrameInput, LIBRARY_SIZE, Wants};
 use crate::command::Command;
 use crate::control;
 use crate::placement::{self, Drag, Rect, Size};
@@ -48,7 +48,7 @@ use hyprland::CursorProbe;
 
 const NAMESPACE: &str = "sth-plex-pip";
 const HEARTBEAT: Duration = Duration::from_millis(80);
-const FIRST_SIZE: Size = Size { width: 560.0, height: 420.0 };
+const PEEK_EVERY: u32 = 5;
 
 struct Overlay {
     registry: RegistryState,
@@ -73,10 +73,11 @@ struct Overlay {
     held: egui::Modifiers,
     pointer_inside: bool,
     cursor_over: bool,
+    peeking: bool,
+    beat: u32,
     rect: Rect,
     scale: i32,
     drag: Option<(Drag, (f32, f32))>,
-    wants: Option<Wants>,
     click_through: Option<bool>,
     keyboard_on: Option<bool>,
     dirty: bool,
@@ -155,7 +156,12 @@ impl Overlay {
             return;
         }
         self.click_through = Some(through);
-        if !through {
+        self.peeking = false;
+        self.accept_pointer(!through);
+    }
+
+    fn accept_pointer(&mut self, accept: bool) {
+        if accept {
             self.layer.wl_surface().set_input_region(None);
             return;
         }
@@ -163,6 +169,35 @@ impl Overlay {
         self.layer.wl_surface().set_input_region(Some(&region));
         region.destroy();
         self.pointer_inside = false;
+    }
+
+    fn end_peek(&mut self) {
+        self.peeking = false;
+        self.accept_pointer(false);
+        self.layer.commit();
+    }
+
+    fn peek(&mut self) -> bool {
+        if self.peeking {
+            self.end_peek();
+            return false;
+        }
+        if self.beat.is_multiple_of(PEEK_EVERY) {
+            self.peeking = true;
+            self.accept_pointer(true);
+            self.layer.commit();
+        }
+        self.cursor_over
+    }
+
+    fn pointer_is_over(&mut self) -> bool {
+        if self.click_through != Some(true) {
+            return false;
+        }
+        if self.probe.is_some() {
+            return self.cursor_is_over();
+        }
+        self.peek()
     }
 
     fn set_keyboard(&mut self, on: bool) {
@@ -175,10 +210,7 @@ impl Overlay {
     }
 
     fn resting_rect(&self, wants: &Wants) -> Rect {
-        let screen = self.screen();
-        let width = placement::fitted_width(screen, wants.size.width);
-        let height = wants.size.height * width / wants.size.width;
-        placement::in_corner(screen, Size { width, height: height.round() }, wants.corner)
+        placement::resting(self.screen(), wants.size, wants.corner)
     }
 
     fn apply(&mut self, wants: Wants) {
@@ -193,7 +225,6 @@ impl Overlay {
         if self.drag.is_none() {
             self.place(self.resting_rect(&wants));
         }
-        self.wants = Some(wants);
         self.layer.commit();
     }
 
@@ -237,7 +268,8 @@ impl Overlay {
     }
 
     fn heartbeat(&mut self) {
-        let over = self.click_through == Some(true) && self.cursor_is_over();
+        self.beat = self.beat.wrapping_add(1);
+        let over = self.pointer_is_over();
         if over != self.cursor_over {
             self.cursor_over = over;
             self.dirty = true;
@@ -459,7 +491,20 @@ impl KeyboardHandler for Overlay {
 }
 
 impl Overlay {
+    fn peeked(&mut self, event: &PointerEvent) {
+        if !matches!(event.kind, PointerEventKind::Enter { .. }) {
+            return;
+        }
+        self.end_peek();
+        self.cursor_over = true;
+        self.dirty = true;
+    }
+
     fn pointed(&mut self, connection: &Connection, event: &PointerEvent) {
+        if self.peeking {
+            self.peeked(event);
+            return;
+        }
         match event.kind {
             PointerEventKind::Enter { .. } => {
                 self.pointer_inside = true;
@@ -564,7 +609,7 @@ pub fn run() -> Result<(), String> {
 
     let surface = compositor.create_surface(&queue);
     let layer = layer_shell.create_layer_surface(&queue, surface, Layer::Overlay, Some(NAMESPACE), None);
-    let rect = Rect { x: 0.0, y: 0.0, width: FIRST_SIZE.width, height: FIRST_SIZE.height };
+    let rect = Rect { x: 0.0, y: 0.0, width: LIBRARY_SIZE.width, height: LIBRARY_SIZE.height };
     layer.set_anchor(Anchor::TOP | Anchor::LEFT);
     layer.set_exclusive_zone(-1);
     layer.set_keyboard_interactivity(KeyboardInteractivity::None);
@@ -594,10 +639,11 @@ pub fn run() -> Result<(), String> {
         held: egui::Modifiers::default(),
         pointer_inside: false,
         cursor_over: false,
+        peeking: false,
+        beat: 0,
         rect,
         scale: 1,
         drag: None,
-        wants: None,
         click_through: None,
         keyboard_on: None,
         dirty: false,

@@ -1,5 +1,4 @@
 use std::ffi::c_void;
-use std::num::NonZeroU32;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
@@ -12,16 +11,13 @@ use glutin::surface::{Surface, SurfaceAttributesBuilder, SwapInterval, WindowSur
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle, WaylandDisplayHandle, WaylandWindowHandle};
 
 use crate::player::GlLookup;
+use crate::shell::dimension;
 
 pub struct Graphics {
     display: Display,
     context: PossiblyCurrentContext,
     surface: Surface<WindowSurface>,
     pub gl: Arc<glow::Context>,
-}
-
-fn dimension(value: u32) -> NonZeroU32 {
-    NonZeroU32::new(value).unwrap_or(NonZeroU32::MIN)
 }
 
 pub fn open(

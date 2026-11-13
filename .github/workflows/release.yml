@@ -1,0 +1,42 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag matches the version in Cargo.toml
+        run: grep -q "^version = \"${GITHUB_REF_NAME#v}\"" Cargo.toml
+
+  check:
+    needs: version
+    uses: ./.github/workflows/check.yml
+
+  publish:
+    needs: check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: built
+      - name: Name the files for the release
+        run: |
+          mkdir release
+          cp built/sth-plex-pip-linux-x64/sth-plex-pip release/sth-plex-pip-linux-x64
+          cp built/sth-plex-pip-darwin-arm64/sth-plex-pip release/sth-plex-pip-darwin-arm64
+          (cd built && zip -r ../release/sth-plex-pip-windows-x64.zip sth-plex-pip-windows-x64)
+          (cd release && sha256sum sth-plex-pip-* > SHA256SUMS)
+      - name: Publish the GitHub release
+        working-directory: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" sth-plex-pip-* SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --verify-tag \
+            --notes "Install with \`brew install seethruhead/tap/sth-plex-pip\` on macOS and Linux. On Windows, unzip and run sth-plex-pip.exe."

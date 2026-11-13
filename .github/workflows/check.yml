@@ -1,0 +1,85 @@
+name: check
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+concurrency:
+  group: check-${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install libmpv and Wayland headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libmpv-dev libwayland-dev libxkbcommon-dev libegl1-mesa-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+      - run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sth-plex-pip-linux-x64
+          path: target/release/sth-plex-pip
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install libmpv
+        run: brew install mpv pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+      - run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sth-plex-pip-darwin-arm64
+          path: target/release/sth-plex-pip
+
+  windows:
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: bash
+    env:
+      MPV_LIB_DIR: ${{ github.workspace }}\mpv-dev
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download libmpv
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo shinchiro/mpv-winbuild-cmake --pattern 'mpv-dev-x86_64-2*.7z' --dir mpv-download
+          7z x mpv-download/*.7z -ompv-dev
+          ls mpv-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --target x86_64-pc-windows-gnu --all-targets -- -D warnings
+      - run: cargo build --release --target x86_64-pc-windows-gnu
+      - name: Put the program and libmpv together
+        run: |
+          mkdir sth-plex-pip-windows-x64
+          cp target/x86_64-pc-windows-gnu/release/sth-plex-pip.exe mpv-dev/libmpv-2.dll sth-plex-pip-windows-x64/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sth-plex-pip-windows-x64
+          path: sth-plex-pip-windows-x64

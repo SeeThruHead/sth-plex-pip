@@ -80,6 +80,12 @@ pub fn sized(width: f32, aspect: f32) -> Size {
     Size { width, height: (width / aspect).round() }
 }
 
+pub fn resting(screen: Size, wanted: Size, corner: Corner) -> Rect {
+    let width = fitted_width(screen, wanted.width);
+    let height = (wanted.height * width / wanted.width).round();
+    in_corner(screen, Size { width, height }, corner)
+}
+
 pub fn resized(rect: Rect, corner: Corner, dx: f32, dy: f32, aspect: f32, screen: Size) -> Rect {
     let grow_x = if corner.left() { dx } else { -dx };
     let grow_y = if corner.top() { dy } else { -dy };
@@ -161,6 +167,13 @@ mod tests {
         let bigger = resized(start, Corner::BottomRight, -160.0, 0.0, 16.0 / 9.0, SCREEN);
         assert_eq!(bigger.size(), Size { width: 640.0, height: 360.0 });
         assert_eq!(bigger, in_corner(SCREEN, bigger.size(), Corner::BottomRight));
+    }
+
+    #[test]
+    fn a_window_wider_than_the_screen_rests_shrunk_in_its_shape() {
+        let narrow = Size { width: 500.0, height: 900.0 };
+        let rect = resting(narrow, Size { width: 904.0, height: 452.0 }, Corner::TopLeft);
+        assert_eq!(rect, Rect { x: GAP, y: GAP, width: 452.0, height: 226.0 });
     }
 
     #[test]

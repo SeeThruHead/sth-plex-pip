@@ -18,7 +18,7 @@ use crate::ui::{self, Action, Browser, Page, Watching};
 const REPORT_EVERY: Duration = Duration::from_secs(10);
 const CONTROLS_REFRESH: Duration = Duration::from_millis(250);
 const WIDESCREEN: f32 = 16.0 / 9.0;
-const LIBRARY_SIZE: Size = Size { width: 560.0, height: 420.0 };
+pub const LIBRARY_SIZE: Size = Size { width: 560.0, height: 420.0 };
 
 pub struct FrameInput {
     pub raw: egui::RawInput,
@@ -69,6 +69,7 @@ pub struct App {
     wanted: Option<String>,
     controls_wanted: bool,
     hidden: bool,
+    resume_on_show: bool,
     quit: bool,
 }
 
@@ -122,6 +123,7 @@ impl App {
             wanted: None,
             controls_wanted: false,
             hidden: false,
+            resume_on_show: false,
             quit: false,
         })
     }
@@ -270,7 +272,12 @@ impl App {
     fn toggle_hidden(&mut self) {
         self.hidden = !self.hidden;
         if self.hidden {
+            self.resume_on_show = self.now.is_some() && !self.player.playback().paused;
             self.player.set_paused(true);
+            return;
+        }
+        if self.resume_on_show {
+            self.player.set_paused(false);
         }
     }
 

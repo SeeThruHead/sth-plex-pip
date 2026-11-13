@@ -6,7 +6,6 @@ mod platform;
 #[path = "windows.rs"]
 mod platform;
 
-use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant};
@@ -25,17 +24,17 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::raw_window_handle::HasWindowHandle;
 use winit::window::{Window, WindowId, WindowLevel};
 
-use crate::app::{App, FrameInput, Wants};
+use crate::app::{App, FrameInput, LIBRARY_SIZE, Wants};
 use crate::command::Command;
 use crate::control;
 use crate::placement::{self, Drag, Rect, Size};
 use crate::player::{self, GlLookup, Player};
 use crate::plex::worker::Wake;
+use crate::shell::dimension;
 use crate::store;
 
 const HEARTBEAT: Duration = Duration::from_millis(80);
 const DRAG_BEAT: Duration = Duration::from_millis(12);
-const FIRST_SIZE: LogicalSize<f64> = LogicalSize::new(560.0, 420.0);
 
 struct Graphics {
     context: PossiblyCurrentContext,
@@ -66,10 +65,6 @@ struct Desktop {
     quit: bool,
 }
 
-fn dimension(value: u32) -> NonZeroU32 {
-    NonZeroU32::new(value).unwrap_or(NonZeroU32::MIN)
-}
-
 fn window_attributes() -> winit::window::WindowAttributes {
     let attributes = Window::default_attributes()
         .with_title("sth-plex-pip")
@@ -78,7 +73,7 @@ fn window_attributes() -> winit::window::WindowAttributes {
         .with_window_level(WindowLevel::AlwaysOnTop)
         .with_active(false)
         .with_visible(false)
-        .with_inner_size(FIRST_SIZE);
+        .with_inner_size(LogicalSize::new(LIBRARY_SIZE.width, LIBRARY_SIZE.height));
     #[cfg(target_os = "windows")]
     let attributes = {
         use winit::platform::windows::WindowAttributesExtWindows;
@@ -160,10 +155,7 @@ impl Running {
     }
 
     fn resting(&self, wants: &Wants) -> Rect {
-        let (screen, _) = self.screen();
-        let width = placement::fitted_width(screen, wants.size.width);
-        let height = (wants.size.height * width / wants.size.width).round();
-        placement::in_corner(screen, Size { width, height }, wants.corner)
+        placement::resting(self.screen().0, wants.size, wants.corner)
     }
 }
 
