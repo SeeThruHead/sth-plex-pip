@@ -1,6 +1,6 @@
 [package]
 name = "sth-plex-pip"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 description = "A floating, click-through Plex picture-in-picture player"
 license = "MIT"
@@ -12,6 +12,7 @@ dirs = "6"
 egui = { version = "0.37", features = ["monochrome_emoji_fonts"] }
 egui_glow = "0.37"
 glutin = "0.32"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 libmpv2 = { version = "7", features = ["render"] }
 raw-window-handle = "0.6"
 serde = { version = "1", features = ["derive"] }
@@ -25,7 +26,6 @@ wayland-backend = { version = "0.3", features = ["client_system"] }
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 egui-winit = { version = "0.37", default-features = false }
-global-hotkey = "0.10"
 glutin-winit = "0.5"
 winit = "0.30"
 

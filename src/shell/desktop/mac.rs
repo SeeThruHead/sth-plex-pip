@@ -7,8 +7,6 @@ use winit::window::Window;
 
 const COMBINED_SESSION: i32 = 0;
 const LEFT_BUTTON: u32 = 0;
-const CONTROL: u64 = 0x40000;
-const OPTION: u64 = 0x80000;
 const SCREEN_SAVER_LEVEL: isize = 1000;
 const ALL_SPACES: usize = 1 << 0;
 const STATIONARY: usize = 1 << 4;
@@ -29,7 +27,6 @@ unsafe extern "C" {
     fn CGEventCreate(source: *const c_void) -> *mut c_void;
     fn CGEventGetLocation(event: *mut c_void) -> Point;
     fn CGEventSourceButtonState(state: i32, button: u32) -> bool;
-    fn CGEventSourceFlagsState(state: i32) -> u64;
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
@@ -118,9 +115,4 @@ pub fn cursor(_scale: f64) -> Option<(f32, f32)> {
 
 pub fn primary_button_down() -> bool {
     unsafe { CGEventSourceButtonState(COMBINED_SESSION, LEFT_BUTTON) }
-}
-
-pub fn modifier_held() -> bool {
-    let flags = unsafe { CGEventSourceFlagsState(COMBINED_SESSION) };
-    flags & CONTROL != 0 && flags & OPTION != 0
 }

@@ -5,7 +5,7 @@ use serde::de::DeserializeOwned;
 use ureq::Agent;
 use ureq::http::Response;
 
-use super::model::{Envelope, Hubs, Item, Items, Pin, Resource, Section, Sections, Server};
+use super::model::{self, Envelope, Hubs, Item, Items, Pin, Resource, Row, Section, Sections, Server};
 
 const PRODUCT: &str = "sth-plex-pip";
 const PLEX_TV: &str = "https://plex.tv/api/v2";
@@ -211,8 +211,20 @@ impl Library {
         self.items(self.get(&format!("/library/metadata/{rating_key}/children")))
     }
 
-    pub fn on_deck(&self) -> PlexResult<Vec<Item>> {
-        self.items(self.get("/library/onDeck"))
+    pub fn home(&self) -> PlexResult<Vec<Row>> {
+        json::<Envelope<Hubs>>(self.get("/hubs").query("count", "18").call())
+            .map(|envelope| model::home_rows(envelope.container.hubs))
+    }
+
+    pub fn image(&self, path: &str, width: u32, height: u32) -> PlexResult<Vec<u8>> {
+        let request = self
+            .get("/photo/:/transcode")
+            .query("width", width.to_string())
+            .query("height", height.to_string())
+            .query("minSize", "1")
+            .query("upscale", "1")
+            .query("url", path);
+        Ok(request.call()?.body_mut().read_to_vec()?)
     }
 
     pub fn search(&self, words: &str) -> PlexResult<Vec<Item>> {
@@ -223,7 +235,7 @@ impl Library {
                 .hubs
                 .into_iter()
                 .flat_map(|hub| hub.items)
-                .filter(|item| !matches!(item.kind(), super::model::ItemKind::Other))
+                .filter(|item| item.kind() != model::ItemKind::Other)
                 .collect()
         })
     }

@@ -90,11 +90,43 @@ pub struct Item {
     pub leaf_count: Option<u32>,
     #[serde(rename = "viewedLeafCount")]
     pub viewed_leaf_count: Option<u32>,
+    pub thumb: Option<String>,
+    pub art: Option<String>,
+    #[serde(rename = "parentThumb")]
+    pub parent_thumb: Option<String>,
+    #[serde(rename = "grandparentThumb")]
+    pub grandparent_thumb: Option<String>,
     #[serde(rename = "Media", default)]
     pub media: Vec<Media>,
 }
 
 impl Item {
+    pub fn poster(&self) -> Option<&str> {
+        match self.kind() {
+            ItemKind::Episode => self.grandparent_thumb.as_ref().or(self.parent_thumb.as_ref()).or(self.thumb.as_ref()),
+            ItemKind::Season => self.thumb.as_ref().or(self.parent_thumb.as_ref()),
+            _ => self.thumb.as_ref(),
+        }
+        .map(String::as_str)
+    }
+
+    pub fn still(&self) -> Option<&str> {
+        match self.kind() {
+            ItemKind::Episode => self.thumb.as_ref().or(self.art.as_ref()),
+            _ => self.art.as_ref().or(self.thumb.as_ref()),
+        }
+        .map(String::as_str)
+    }
+
+    pub fn progress(&self) -> Option<f32> {
+        let (offset, duration) = (self.view_offset?, self.duration?);
+        (offset > 0 && duration > 0).then(|| (offset as f32 / duration as f32).clamp(0.0, 1.0))
+    }
+
+    pub fn minutes_left(&self) -> Option<u64> {
+        self.duration.map(|duration| duration.saturating_sub(self.view_offset.unwrap_or(0)).div_ceil(60_000))
+    }
+
     pub fn kind(&self) -> ItemKind {
         match self.kind_name.as_str() {
             "movie" => ItemKind::Movie,
@@ -172,8 +204,42 @@ pub struct Items {
 
 #[derive(Debug, Deserialize)]
 pub struct Hub {
+    #[serde(rename = "hubIdentifier", default)]
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
     #[serde(rename = "Metadata", default)]
     pub items: Vec<Item>,
+}
+
+pub const CONTINUE: &str = "home.continue";
+const ON_DECK: &str = "home.ondeck";
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Row {
+    pub id: String,
+    pub title: String,
+    pub items: Vec<Item>,
+}
+
+impl Row {
+    pub fn resumes(&self) -> bool {
+        self.id == CONTINUE || self.id == ON_DECK
+    }
+}
+
+fn watchable(hub: Hub) -> Row {
+    let items = hub.items.into_iter().filter(|item| item.kind() != ItemKind::Other).collect();
+    Row { id: hub.id, title: hub.title, items }
+}
+
+pub fn home_rows(hubs: Vec<Hub>) -> Vec<Row> {
+    let continues = hubs.iter().any(|hub| hub.id == CONTINUE && !hub.items.is_empty());
+    hubs.into_iter()
+        .filter(|hub| !(continues && hub.id == ON_DECK))
+        .map(watchable)
+        .filter(|row| !row.items.is_empty())
+        .collect()
 }
 
 #[derive(Debug, Deserialize)]
@@ -259,6 +325,35 @@ mod tests {
     #[test]
     fn nothing_playable_means_no_match() {
         assert_eq!(best_match(&[titled("show", "Poison", 2020)], "poison"), None);
+    }
+
+    fn hub(id: &str, kinds: &[&str]) -> Hub {
+        Hub { id: id.into(), title: id.into(), items: kinds.iter().map(|kind| titled(kind, "T", 2020)).collect() }
+    }
+
+    #[test]
+    fn home_keeps_one_resume_row_and_only_rows_with_something_to_watch() {
+        let rows = home_rows(vec![
+            hub("home.continue", &["episode"]),
+            hub("home.ondeck", &["episode"]),
+            hub("home.music.recent", &["album"]),
+            hub("home.movies.recent", &["movie", "movie"]),
+            hub("home.photos.recent", &[]),
+        ]);
+        let ids: Vec<&str> = rows.iter().map(|row| row.id.as_str()).collect();
+        assert_eq!(ids, ["home.continue", "home.movies.recent"]);
+        assert_eq!(home_rows(vec![hub("home.ondeck", &["episode"])]).len(), 1);
+    }
+
+    #[test]
+    fn progress_is_the_share_already_watched() {
+        let half: Item = serde_json::from_str(
+            r#"{"ratingKey":"1","key":"/k","type":"movie","title":"T","viewOffset":1800000,"duration":3600000}"#,
+        )
+        .unwrap();
+        assert_eq!(half.progress(), Some(0.5));
+        assert_eq!(half.minutes_left(), Some(30));
+        assert_eq!(titled("movie", "T", 2020).progress(), None);
     }
 
     fn episode() -> Item {

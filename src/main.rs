@@ -1,4 +1,5 @@
 mod app;
+mod art;
 mod command;
 mod control;
 mod placement;

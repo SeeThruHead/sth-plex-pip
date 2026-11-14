@@ -191,11 +191,11 @@ impl Overlay {
     }
 
     fn pointer_is_over(&mut self) -> bool {
-        if self.click_through != Some(true) {
-            return false;
-        }
         if self.probe.is_some() {
             return self.cursor_is_over();
+        }
+        if self.click_through != Some(true) {
+            return self.pointer_inside;
         }
         self.peek()
     }
@@ -251,7 +251,6 @@ impl Overlay {
             raw: self.raw_input(),
             pixels: self.pixels(),
             hovered: self.pointer_inside || self.cursor_over,
-            modifier_held: false,
             window_fades: false,
         };
         let wants = self.app.as_mut().map(|app| app.frame(input));

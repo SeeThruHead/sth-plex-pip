@@ -7,7 +7,7 @@ use crate::plex::worker::Wake;
 pub fn send(_: &Command) -> io::Result<()> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
-        "Controlling a running player from the command line is not available on Windows yet. Use the hotkeys.",
+        "Controlling a running player from the command line is not available on Windows yet. Use the controls on the window.",
     ))
 }
 

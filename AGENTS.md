@@ -19,10 +19,11 @@ A floating, click-through Plex player. Rust, libmpv for playback, egui for the i
 - `video.rs`: the texture mpv draws into, which egui then paints.
 - `presence.rs`: pure. From "is it playing, is the pointer over it, were controls asked for" to "how opaque, does it take clicks, are controls shown".
 - `placement.rs`: pure. Corners, snapping, resizing and drag maths.
+- `art.rs`: posters and stills, fetched from the server on background threads.
 - `ui.rs`: the egui views. Views return a list of `Action`s; they change nothing themselves.
 - `app.rs`: owns the state and ties it together. One `frame()` per redraw: handle commands, Plex replies and player events, draw, and return what the window should look like (`Wants`).
 - `shell/`: the window, one per system. `wayland/` is a layer-shell overlay; `desktop/` is winit for macOS and Windows with a small file each for what winit does not cover. A shell feeds input to `App::frame` and applies the `Wants` it gets back.
-- `store.rs`: settings and sign-in files. `command.rs`: the commands shared by the CLI, the socket and the hotkeys.
+- `store.rs`: settings and sign-in files. `command.rs`: the commands shared by the CLI, the socket and the controls.
 
 ## Rules
 

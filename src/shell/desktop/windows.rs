@@ -1,5 +1,5 @@
 use windows_sys::Win32::Foundation::{HWND, POINT};
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_LBUTTON, VK_MENU};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GWL_EXSTYLE, GetCursorPos, GetWindowLongPtrW, HWND_TOPMOST, LWA_ALPHA, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
     SetLayeredWindowAttributes, SetWindowLongPtrW, SetWindowPos, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
@@ -64,10 +64,6 @@ fn down(key: u16) -> bool {
 
 pub fn primary_button_down() -> bool {
     down(VK_LBUTTON)
-}
-
-pub fn modifier_held() -> bool {
-    down(VK_CONTROL) && down(VK_MENU)
 }
 
 pub fn announce(_: &str) {}

@@ -2,7 +2,7 @@
 pub struct Presence {
     pub playing: bool,
     pub controls_wanted: bool,
-    pub modifier_held: bool,
+    pub dwelt: bool,
     pub hovered: bool,
     pub hidden: bool,
     pub opacity: f32,
@@ -19,7 +19,7 @@ pub struct Look {
 
 impl Presence {
     fn interactive(&self) -> bool {
-        !self.playing || self.controls_wanted || self.modifier_held
+        !self.playing || self.controls_wanted || self.dwelt
     }
 
     fn see_through(&self) -> bool {
@@ -47,7 +47,7 @@ mod tests {
     const WATCHING: Presence = Presence {
         playing: true,
         controls_wanted: false,
-        modifier_held: false,
+        dwelt: false,
         hovered: false,
         hidden: false,
         opacity: 1.0,
@@ -67,9 +67,9 @@ mod tests {
     }
 
     #[test]
-    fn the_hotkey_or_modifier_brings_controls_back_fully_visible() {
+    fn asking_or_resting_the_pointer_brings_controls_back_fully_visible() {
         let asked = Presence { hovered: true, controls_wanted: true, ..WATCHING }.look();
-        let held = Presence { hovered: true, modifier_held: true, ..WATCHING }.look();
+        let held = Presence { hovered: true, dwelt: true, ..WATCHING }.look();
         assert_eq!(asked, Look { visible: true, opacity: 1.0, takes_clicks: true, controls: true });
         assert_eq!(held, asked);
     }

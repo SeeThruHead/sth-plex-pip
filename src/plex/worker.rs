@@ -4,14 +4,13 @@ use std::thread;
 use std::time::Duration;
 
 use super::client::{self, Identity, Library, PlexError, PlexResult, Progress};
-use super::model::{Item, Section};
+use super::model::{Item, Row, Section};
 
 const SIGN_IN_POLLS: u32 = 450;
 const SIGN_IN_POLL_GAP: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Listing {
-    OnDeck,
     Section(Section),
     Children(Box<Item>),
     Search(String),
@@ -22,10 +21,12 @@ pub enum Request {
     SignIn,
     Connect { token: String },
     Sections,
+    Home,
     List(Listing),
     Following { episode: Box<Item> },
     Report(Progress),
     MarkWatched { rating_key: String },
+    Flush(Sender<()>),
 }
 
 #[derive(Debug)]
@@ -34,6 +35,7 @@ pub enum Reply {
     SignedIn { token: String },
     Connected { library: Library },
     Sections(Vec<Section>),
+    Home(Vec<Row>),
     Listed { listing: Listing, items: Vec<Item> },
     Following { rating_key: String, items: Vec<Item> },
     SignedOut,
@@ -57,6 +59,12 @@ impl PlexWorker {
 
     pub fn ask(&self, request: Request) {
         let _ = self.requests.send(request);
+    }
+
+    pub fn flush(&self, patience: Duration) {
+        let (done, finished) = channel::<()>();
+        self.ask(Request::Flush(done));
+        let _ = finished.recv_timeout(patience);
     }
 
     pub fn replies(&self) -> Vec<Reply> {
@@ -85,6 +93,10 @@ fn answer(
     match request {
         Request::SignIn => (library, vec![settled(sign_in(identity, say))]),
         Request::Connect { token } => connect(identity, &token),
+        Request::Flush(done) => {
+            let _ = done.send(());
+            (library, vec![])
+        }
         other => {
             let replies = library.as_ref().map(|library| browse(library, other)).unwrap_or_default();
             (library, replies)
@@ -128,11 +140,12 @@ fn connect(identity: &Identity, token: &str) -> (Option<Library>, Vec<Reply>) {
 fn browse(library: &Library, request: Request) -> Vec<Reply> {
     match request {
         Request::Sections => vec![settled(library.sections().map(Reply::Sections))],
+        Request::Home => vec![settled(library.home().map(Reply::Home))],
         Request::List(listing) => vec![settled(list(library, &listing).map(|items| Reply::Listed { listing, items }))],
         Request::Following { episode } => following(library, &episode).into_iter().collect(),
         Request::Report(progress) => failures(library.report(&progress)),
         Request::MarkWatched { rating_key } => failures(library.mark_watched(&rating_key)),
-        Request::SignIn | Request::Connect { .. } => vec![],
+        Request::SignIn | Request::Connect { .. } | Request::Flush(_) => vec![],
     }
 }
 
@@ -151,7 +164,6 @@ fn failures(result: PlexResult<()>) -> Vec<Reply> {
 
 fn list(library: &Library, listing: &Listing) -> PlexResult<Vec<Item>> {
     match listing {
-        Listing::OnDeck => library.on_deck(),
         Listing::Section(section) => library.section_items(&section.key),
         Listing::Children(item) => library.children(&item.rating_key),
         Listing::Search(words) => library.search(words),

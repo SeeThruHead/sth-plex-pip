@@ -1,4 +1,3 @@
-mod hotkeys;
 #[cfg(target_os = "macos")]
 #[path = "mac.rs"]
 mod platform;
@@ -31,7 +30,6 @@ use crate::placement::{self, Drag, Rect, Size};
 use crate::player::{self, GlLookup, Player};
 use crate::plex::worker::Wake;
 use crate::shell::dimension;
-use crate::store;
 
 const HEARTBEAT: Duration = Duration::from_millis(80);
 const DRAG_BEAT: Duration = Duration::from_millis(12);
@@ -254,7 +252,6 @@ impl Desktop {
             raw: running.input.take_egui_input(&running.window),
             pixels: [size.width, size.height],
             hovered,
-            modifier_held: platform::modifier_held(),
             window_fades: true,
         };
         let wants = running.app.frame(input);
@@ -371,8 +368,7 @@ pub fn run() -> Result<(), String> {
         let _ = proxy.send_event(());
     });
     let (sender, commands) = channel::<Command>();
-    control::listen(sender.clone(), wake.clone()).map_err(|error| format!("control socket: {error}"))?;
-    let _hotkeys = hotkeys::register(&store::settings().hotkeys, sender, wake.clone());
+    control::listen(sender, wake.clone()).map_err(|error| format!("control socket: {error}"))?;
     let mut desktop = Desktop {
         wake,
         commands: Some(commands),

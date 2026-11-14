@@ -30,37 +30,8 @@ pub struct Settings {
     pub hover_opacity: f32,
     pub volume: f64,
     pub update_plex: bool,
-    pub hotkeys: Hotkeys,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Hotkeys {
-    pub controls: String,
-    pub pause: String,
-    pub back: String,
-    pub forward: String,
-    pub volume_up: String,
-    pub volume_down: String,
-    pub hide: String,
-    pub dimmer: String,
-    pub brighter: String,
-}
-
-impl Default for Hotkeys {
-    fn default() -> Self {
-        Self {
-            controls: "ctrl+alt+KeyP".into(),
-            pause: "ctrl+alt+Space".into(),
-            back: "ctrl+alt+ArrowLeft".into(),
-            forward: "ctrl+alt+ArrowRight".into(),
-            volume_up: "ctrl+alt+ArrowUp".into(),
-            volume_down: "ctrl+alt+ArrowDown".into(),
-            hide: "ctrl+alt+KeyH".into(),
-            dimmer: "ctrl+alt+Minus".into(),
-            brighter: "ctrl+alt+Equal".into(),
-        }
-    }
+    pub library_width: f32,
+    pub controls_after: f32,
 }
 
 impl Default for Settings {
@@ -72,7 +43,8 @@ impl Default for Settings {
             hover_opacity: 0.12,
             volume: 100.0,
             update_plex: true,
-            hotkeys: Hotkeys::default(),
+            library_width: 760.0,
+            controls_after: 0.75,
         }
     }
 }

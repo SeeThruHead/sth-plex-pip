@@ -1,15 +1,22 @@
 use egui::{Align, Color32, CornerRadius, Layout, Rect, RichText, Sense, Ui, UiBuilder, Vec2};
 
+use crate::art::{Art, Shape};
 use crate::command::Command;
 use crate::placement::Corner;
 use crate::player::{Playback, Track, TrackKind};
-use crate::plex::model::{Item, ItemKind, Section};
+use crate::plex::model::{Item, ItemKind, Row, Section};
 use crate::plex::worker::Listing;
 
 const BAR: Color32 = Color32::from_rgba_premultiplied(12, 12, 14, 215);
 const PANEL: Color32 = Color32::from_rgb(22, 22, 26);
 const ACCENT: Color32 = Color32::from_rgb(229, 160, 13);
 const QUIET: Color32 = Color32::from_rgb(150, 150, 158);
+const CARD: Color32 = Color32::from_rgb(38, 38, 44);
+const WIDE_CARD: f32 = 208.0;
+const POSTER_CARD: f32 = 116.0;
+const CARD_TEXT: f32 = 38.0;
+const CARD_GAP: f32 = 10.0;
+const EPISODE_ROW: f32 = 62.0;
 const BAR_HEIGHT: f32 = 30.0;
 const GRIP: f32 = 18.0;
 const MENU_MARGIN: f32 = 40.0;
@@ -41,7 +48,7 @@ pub struct Page {
 pub struct Browser {
     pub server: String,
     pub sections: Vec<Section>,
-    pub on_deck: Vec<Item>,
+    pub rows: Vec<Row>,
     pub trail: Vec<Page>,
     pub search: String,
     pub notice: Option<String>,
@@ -85,7 +92,7 @@ fn padded(rect: Rect) -> Rect {
 }
 
 fn within<R>(ui: &mut Ui, rect: Rect, layout: Layout, add: impl FnOnce(&mut Ui) -> R) -> R {
-    ui.scope_builder(UiBuilder::new().max_rect(rect).layout(layout), add).inner
+    add(&mut ui.new_child(UiBuilder::new().max_rect(rect).layout(layout)))
 }
 
 pub fn sign_in(ui: &mut Ui, waiting: bool, notice: Option<&str>, link: Option<&str>) -> Vec<Action> {
@@ -129,16 +136,6 @@ pub fn connecting(ui: &mut Ui) -> Vec<Action> {
     vec![]
 }
 
-fn marker(item: &Item) -> &'static str {
-    if item.watched() {
-        return "✔ ";
-    }
-    if item.view_offset.unwrap_or(0) > 0 {
-        return "▶ ";
-    }
-    "    "
-}
-
 fn row_action(item: &Item, siblings: &[Item]) -> Action {
     if !item.playable() {
         return Action::Open(Listing::Children(Box::new(item.clone())));
@@ -153,69 +150,192 @@ fn row_action(item: &Item, siblings: &[Item]) -> Action {
     Action::Play { item: Box::new(item.clone()), following }
 }
 
-fn row(ui: &mut Ui, text: String, strong: bool) -> bool {
-    let label = if strong { RichText::new(text).strong() } else { RichText::new(text) };
-    ui.add_sized(
-        Vec2::new(ui.available_width(), 22.0),
-        egui::Button::new(label).frame(false).wrap_mode(egui::TextWrapMode::Truncate).right_text(""),
-    )
-    .clicked()
-}
-
-fn item_row(ui: &mut Ui, item: &Item, siblings: &[Item], heading: bool) -> Option<Action> {
-    let name = if heading { item.heading() } else { item.label() };
-    row(ui, format!("{}{name}", marker(item)), false).then(|| row_action(item, siblings))
-}
-
 fn caption(ui: &mut Ui, text: &str) {
-    ui.add_space(6.0);
-    ui.label(RichText::new(text).color(QUIET).small());
+    ui.add_space(8.0);
+    ui.label(RichText::new(text).strong());
+    ui.add_space(2.0);
 }
 
-fn home(ui: &mut Ui, browser: &Browser) -> Vec<Action> {
-    let resumed: Vec<Action> = if browser.on_deck.is_empty() {
-        vec![]
-    } else {
-        caption(ui, "CONTINUE WATCHING");
-        browser.on_deck.iter().filter_map(|item| item_row(ui, item, &[], true)).collect()
-    };
-    caption(ui, "LIBRARIES");
-    let opened = browser
-        .sections
-        .iter()
-        .filter(|section| row(ui, format!("    {}", section.title), true))
-        .map(|section| Action::Open(Listing::Section(section.clone())))
-        .collect::<Vec<_>>();
-    resumed.into_iter().chain(opened).collect()
+fn picture(ui: &Ui, art: Option<&Art>, path: Option<&str>, shape: Shape, rect: Rect) {
+    ui.painter().rect_filled(rect, CornerRadius::same(6), CARD);
+    let found = art.zip(path).and_then(|(art, path)| art.picture(path, shape));
+    found.into_iter().for_each(|found| {
+        egui::Image::new((found.id, found.size)).corner_radius(CornerRadius::same(6)).paint_at(ui, rect);
+    });
+}
+
+fn progress_strip(ui: &Ui, image: Rect, item: &Item) {
+    item.progress().into_iter().for_each(|share| {
+        let track = Rect::from_min_max(egui::pos2(image.left(), image.bottom() - 4.0), image.max);
+        let done = Rect::from_min_size(track.min, Vec2::new(track.width() * share, track.height()));
+        ui.painter().rect_filled(track, CornerRadius::ZERO, Color32::from_black_alpha(170));
+        ui.painter().rect_filled(done, CornerRadius::ZERO, ACCENT);
+    });
+}
+
+fn watched_badge(ui: &Ui, image: Rect, item: &Item) {
+    if !item.watched() {
+        return;
+    }
+    let spot = Rect::from_min_size(egui::pos2(image.right() - 20.0, image.top() + 4.0), Vec2::splat(16.0));
+    ui.painter().rect_filled(spot, CornerRadius::same(8), Color32::from_black_alpha(190));
+    ui.painter().text(spot.center(), egui::Align2::CENTER_CENTER, "✔", egui::FontId::proportional(10.0), ACCENT);
+}
+
+fn time_left(item: &Item) -> Option<String> {
+    item.progress().and(item.minutes_left()).map(|minutes| format!("{minutes} min left"))
+}
+
+fn card_lines(item: &Item) -> (String, String) {
+    let year = || item.year.map(|year| year.to_string()).unwrap_or_default();
+    match item.kind() {
+        ItemKind::Episode => (item.grandparent_title.clone().unwrap_or_else(|| item.title.clone()), item.label()),
+        ItemKind::Season => (item.title.clone(), item.parent_title.clone().unwrap_or_default()),
+        _ => (item.title.clone(), time_left(item).unwrap_or_else(year)),
+    }
+}
+
+fn short(text: String, size: f32, color: Color32) -> egui::Label {
+    egui::Label::new(RichText::new(text).size(size).color(color)).truncate()
+}
+
+fn card(ui: &mut Ui, art: Option<&Art>, item: &Item, shape: Shape, width: f32) -> bool {
+    let image_size = Vec2::new(width, (width / shape.aspect()).round());
+    let (rect, response) = ui.allocate_exact_size(image_size + Vec2::new(0.0, CARD_TEXT), Sense::click());
+    let image = Rect::from_min_size(rect.min, image_size);
+    let path = if shape == Shape::Still { item.still() } else { item.poster() };
+    picture(ui, art, path, shape, image);
+    progress_strip(ui, image, item);
+    watched_badge(ui, image, item);
+    if response.hovered() {
+        ui.painter().rect_stroke(image, CornerRadius::same(6), (2.0, ACCENT), egui::StrokeKind::Inside);
+    }
+    let (first, second) = card_lines(item);
+    let text = Rect::from_min_max(egui::pos2(rect.left(), image.bottom() + 3.0), rect.max);
+    within(ui, text, Layout::top_down(Align::Min), |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        ui.add(short(first, 12.5, Color32::WHITE));
+        ui.add(short(second, 11.0, QUIET));
+    });
+    response.on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
+}
+
+fn shelf(ui: &mut Ui, art: Option<&Art>, row: &Row) -> Option<Action> {
+    caption(ui, &row.title);
+    let (shape, width) = if row.resumes() { (Shape::Still, WIDE_CARD) } else { (Shape::Poster, POSTER_CARD) };
+    egui::ScrollArea::horizontal()
+        .id_salt(&row.id)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = CARD_GAP;
+                let picked =
+                    row.items.iter().filter(|item| card(ui, art, item, shape, width)).map(|item| row_action(item, &[]));
+                picked.last()
+            })
+            .inner
+        })
+        .inner
+}
+
+fn libraries(ui: &mut Ui, sections: &[Section]) -> Option<Action> {
+    ui.add_space(4.0);
+    ui.horizontal_wrapped(|ui| {
+        sections
+            .iter()
+            .filter(|section| ui.add(egui::Button::new(&section.title).corner_radius(CornerRadius::same(12))).clicked())
+            .map(|section| Action::Open(Listing::Section(section.clone())))
+            .last()
+    })
+    .inner
+}
+
+fn home(ui: &mut Ui, art: Option<&Art>, browser: &Browser) -> Vec<Action> {
+    let opened = libraries(ui, &browser.sections);
+    if browser.rows.is_empty() {
+        ui.add_space(30.0);
+        ui.vertical_centered(|ui| ui.spinner());
+    }
+    let picked: Vec<Action> = browser.rows.iter().filter_map(|row| shelf(ui, art, row)).collect();
+    ui.add_space(10.0);
+    opened.into_iter().chain(picked).collect()
 }
 
 fn matches(item: &Item, filter: &str) -> bool {
     filter.is_empty() || item.label().to_lowercase().contains(&filter.to_lowercase())
 }
 
-fn page(ui: &mut Ui, page: &Page) -> Vec<Action> {
+fn episode_row(ui: &mut Ui, art: Option<&Art>, item: &Item) -> bool {
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), EPISODE_ROW), Sense::click());
+    if response.hovered() {
+        ui.painter().rect_filled(rect, CornerRadius::same(6), CARD);
+    }
+    let image = Rect::from_min_size(rect.min + Vec2::splat(3.0), Vec2::new(100.0, EPISODE_ROW - 6.0));
+    picture(ui, art, item.still(), Shape::Still, image);
+    progress_strip(ui, image, item);
+    watched_badge(ui, image, item);
+    let text = Rect::from_min_max(egui::pos2(image.right() + 10.0, rect.top() + 12.0), rect.max);
+    let minutes = item.duration.map(|duration| format!("{} min", duration / 60_000)).unwrap_or_default();
+    within(ui, text, Layout::top_down(Align::Min), |ui| {
+        ui.add(short(item.label(), 13.5, Color32::WHITE));
+        ui.add(short(time_left(item).unwrap_or(minutes), 11.5, QUIET));
+    });
+    response.on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
+}
+
+fn episode_list(ui: &mut Ui, art: Option<&Art>, shown: &[&Item], all: &[Item]) -> Vec<Action> {
+    egui::ScrollArea::vertical()
+        .auto_shrink(false)
+        .show_rows(ui, EPISODE_ROW, shown.len(), |ui, range| {
+            shown[range].iter().filter(|item| episode_row(ui, art, item)).map(|item| row_action(item, all)).collect()
+        })
+        .inner
+}
+
+fn poster_grid(ui: &mut Ui, art: Option<&Art>, shown: &[&Item], all: &[Item]) -> Vec<Action> {
+    let columns = ((ui.available_width() + CARD_GAP) / (POSTER_CARD + CARD_GAP)).floor().max(1.0) as usize;
+    let lines: Vec<&[&Item]> = shown.chunks(columns).collect();
+    let height = (POSTER_CARD / Shape::Poster.aspect()).round() + CARD_TEXT + 6.0;
+    egui::ScrollArea::vertical()
+        .auto_shrink(false)
+        .show_rows(ui, height, lines.len(), |ui, range| {
+            lines[range]
+                .iter()
+                .flat_map(|line| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = CARD_GAP;
+                        ui.set_height(height);
+                        line.iter()
+                            .filter(|item| card(ui, art, item, Shape::Poster, POSTER_CARD))
+                            .map(|item| row_action(item, all))
+                            .collect::<Vec<_>>()
+                    })
+                    .inner
+                })
+                .collect()
+        })
+        .inner
+}
+
+fn page(ui: &mut Ui, art: Option<&Art>, page: &Page) -> Vec<Action> {
     let Some(items) = &page.items else {
-        ui.add_space(20.0);
+        ui.add_space(30.0);
         ui.vertical_centered(|ui| ui.spinner());
         return vec![];
     };
     let shown: Vec<&Item> = items.iter().filter(|item| matches(item, &page.filter)).collect();
     if shown.is_empty() {
         ui.add_space(12.0);
-        ui.label(RichText::new("    Nothing here.").color(QUIET));
+        ui.label(RichText::new("Nothing here.").color(QUIET));
         return vec![];
     }
-    let heading = matches!(page.listing, Listing::Search(_));
-    egui::ScrollArea::vertical()
-        .auto_shrink(false)
-        .show_rows(ui, 22.0, shown.len(), |ui, range| {
-            shown[range].iter().filter_map(|item| item_row(ui, item, items, heading)).collect::<Vec<_>>()
-        })
-        .inner
+    let episodes = shown.iter().all(|item| item.kind() == ItemKind::Episode);
+    let season = matches!(page.listing, Listing::Children(_));
+    if episodes && season { episode_list(ui, art, &shown, items) } else { poster_grid(ui, art, &shown, items) }
 }
 
 fn search_box(ui: &mut Ui, text: &mut String, hint: &str) -> bool {
-    let response = ui.add(egui::TextEdit::singleline(text).hint_text(hint).desired_width(150.0));
+    let response = ui.add(egui::TextEdit::singleline(text).hint_text(hint).desired_width(170.0));
     response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter))
 }
 
@@ -223,17 +343,12 @@ fn browser_bar(ui: &mut Ui, browser: &mut Browser) -> Vec<Action> {
     let deep = !browser.trail.is_empty();
     let back = deep.then(|| ui.button("⬅").clicked().then_some(Action::Back)).flatten();
     let title = browser.trail.last().map(|page| page.title.clone()).unwrap_or_else(|| browser.server.clone());
-    ui.label(RichText::new(title).strong());
+    ui.add(egui::Label::new(RichText::new(title).strong()).truncate());
     let right = ui
         .with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let menu = ui
-                .menu_button("☰", |ui| {
-                    let out = ui.button("Sign out").clicked().then_some(Action::SignOut);
-                    let quit = ui.button("Quit").clicked().then_some(Action::Run(Command::Quit));
-                    out.or(quit)
-                })
-                .inner
-                .flatten();
+            let close = ui.button("✖").on_hover_text("Close the player").clicked();
+            let menu =
+                ui.menu_button("☰", |ui| ui.button("Sign out").clicked().then_some(Action::SignOut)).inner.flatten();
             let searched = match browser.trail.last_mut() {
                 Some(page) if !matches!(page.listing, Listing::Search(_)) => {
                     search_box(ui, &mut page.filter, "Filter");
@@ -243,29 +358,31 @@ fn browser_bar(ui: &mut Ui, browser: &mut Browser) -> Vec<Action> {
                     .then(|| Action::Open(Listing::Search(browser.search.clone())))
                     .filter(|_| !browser.search.trim().is_empty()),
             };
-            [menu, searched]
+            [close.then_some(Action::Run(Command::Quit)), menu, searched]
         })
         .inner;
     [back].into_iter().chain(right).flatten().collect()
 }
 
-pub fn browser(ui: &mut Ui, browser: &mut Browser) -> Vec<Action> {
+pub fn browser(ui: &mut Ui, art: Option<&Art>, browser: &mut Browser, corner: Corner) -> Vec<Action> {
     panel(ui);
     let full = ui.max_rect();
     let bar = Rect::from_min_size(full.min, Vec2::new(full.width(), BAR_HEIGHT));
-    let body = Rect::from_min_max(bar.left_bottom(), full.max).shrink2(Vec2::new(6.0, 2.0));
+    let body = Rect::from_min_max(bar.left_bottom(), full.max).shrink2(Vec2::new(10.0, 2.0));
     let moved = drag_strip(ui, bar);
-    let barred = within(ui, padded(bar), Layout::left_to_right(Align::Center), |ui| browser_bar(ui, browser));
+    let clear = if corner.top() { bar } else { clear_of_grip(bar, corner) };
+    let barred = within(ui, padded(clear), Layout::left_to_right(Align::Center), |ui| browser_bar(ui, browser));
     let listed = within(ui, body, Layout::top_down(Align::Min), |ui| {
         browser.notice.iter().for_each(|text| {
             ui.colored_label(Color32::LIGHT_RED, text);
         });
         match browser.trail.last() {
-            Some(current) => page(ui, current),
-            None => egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| home(ui, browser)).inner,
+            Some(current) => page(ui, art, current),
+            None => egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| home(ui, art, browser)).inner,
         }
     });
-    moved.into_iter().chain(barred).chain(listed).collect()
+    let resized = grip(ui, corner);
+    resized.or(moved).into_iter().chain(barred).chain(listed).collect()
 }
 
 pub fn video(ui: &mut Ui, texture: Option<egui::TextureId>, opacity: f32) {
@@ -303,9 +420,9 @@ fn track_choices(ui: &mut Ui, kind: TrackKind, tracks: &[Track], can_turn_off: b
 fn top_bar(ui: &mut Ui, watching: &Watching) -> Vec<Action> {
     ui.label(RichText::new(watching.title).strong().color(Color32::WHITE));
     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-        let done = ui.button("✖").on_hover_text("Put the controls away").clicked();
-        let library = ui.button("☰").on_hover_text("Stop and go back to the library").clicked();
-        [done.then_some(Action::Run(Command::Controls)), library.then_some(Action::Run(Command::Stop))]
+        let close = ui.button("✖").on_hover_text("Stop and close the player").clicked();
+        let library = ui.button("☰").on_hover_text("Stop and pick something else").clicked();
+        [close.then_some(Action::Run(Command::Quit)), library.then_some(Action::Run(Command::Stop))]
     })
     .inner
     .into_iter()
@@ -363,6 +480,25 @@ fn grip(ui: &mut Ui, corner: Corner) -> Option<Action> {
     response.drag_started().then_some(Action::Resize)
 }
 
+fn picture_area(ui: &mut Ui, rect: Rect, playback: &Playback) -> Vec<Action> {
+    let response = ui.interact(rect, ui.scope_id().with("picture"), Sense::click_and_drag());
+    let wheel = ui.input(|input| input.smooth_scroll_delta.y) as f64;
+    let turned = (response.hovered() && wheel != 0.0).then_some(Action::SetVolume(playback.volume + wheel * 0.15));
+    let icon = if playback.paused { "▶" } else { "⏸" };
+    let spot = Rect::from_center_size(rect.center(), Vec2::splat(54.0));
+    ui.painter().rect_filled(spot, CornerRadius::same(27), BAR);
+    ui.painter().text(
+        spot.center(),
+        egui::Align2::CENTER_CENTER,
+        icon,
+        egui::FontId::proportional(26.0),
+        Color32::WHITE,
+    );
+    let toggled = response.clicked().then_some(Action::Run(Command::Pause));
+    let moved = response.drag_started().then_some(Action::Move);
+    [turned, toggled, moved].into_iter().flatten().collect()
+}
+
 pub fn controls(ui: &mut Ui, watching: &Watching) -> Vec<Action> {
     let full = ui.max_rect();
     let top = Rect::from_min_size(full.min, Vec2::new(full.width(), BAR_HEIGHT));
@@ -371,6 +507,8 @@ pub fn controls(ui: &mut Ui, watching: &Watching) -> Vec<Action> {
     ui.painter().rect_filled(top, CornerRadius::ZERO, BAR);
     ui.painter().rect_filled(bottom, CornerRadius::ZERO, BAR);
     let moved = drag_strip(ui, top);
+    let middle = Rect::from_min_max(top.left_bottom(), bottom.right_top());
+    let pictured = picture_area(ui, middle, &watching.playback);
     let (title, buttons) = if watching.corner.top() {
         (top, clear_of_grip(buttons, watching.corner))
     } else {
@@ -380,7 +518,7 @@ pub fn controls(ui: &mut Ui, watching: &Watching) -> Vec<Action> {
     let sought = within(ui, padded(seek), Layout::left_to_right(Align::Center), |ui| seek_bar(ui, &watching.playback));
     let pressed = within(ui, padded(buttons), Layout::left_to_right(Align::Center), |ui| transport(ui, watching));
     let resized = grip(ui, watching.corner);
-    resized.or(moved).into_iter().chain(barred).chain(sought).chain(pressed).collect()
+    resized.or(moved).into_iter().chain(pictured).chain(barred).chain(sought).chain(pressed).collect()
 }
 
 #[cfg(test)]

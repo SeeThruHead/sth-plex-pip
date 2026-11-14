@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use egui_glow::Painter;
 use egui_glow::glow::{self, HasContext};
 
+use crate::art::Art;
 use crate::command::Command;
 use crate::placement::{self, Corner, Gesture, Size};
 use crate::player::{Playback, Player, PlayerEvent, TrackKind};
@@ -18,13 +19,15 @@ use crate::ui::{self, Action, Browser, Page, Watching};
 const REPORT_EVERY: Duration = Duration::from_secs(10);
 const CONTROLS_REFRESH: Duration = Duration::from_millis(250);
 const WIDESCREEN: f32 = 16.0 / 9.0;
-pub const LIBRARY_SIZE: Size = Size { width: 560.0, height: 420.0 };
+const LIBRARY_ASPECT: f32 = 1.5;
+const LINGER: Duration = Duration::from_millis(350);
+const LAST_WORD: Duration = Duration::from_secs(3);
+pub const LIBRARY_SIZE: Size = Size { width: 760.0, height: 507.0 };
 
 pub struct FrameInput {
     pub raw: egui::RawInput,
     pub pixels: [u32; 2],
     pub hovered: bool,
-    pub modifier_held: bool,
     pub window_fades: bool,
 }
 
@@ -83,6 +86,10 @@ pub struct App {
     target: crate::video::VideoTarget,
     player: Player,
     plex: PlexWorker,
+    wake: Wake,
+    art: Option<Art>,
+    hover_since: Option<Instant>,
+    hover_last: Option<Instant>,
     commands: Receiver<Command>,
     auth: Auth,
     settings: Settings,
@@ -98,7 +105,6 @@ pub struct App {
 
 fn title_of(listing: &Listing) -> String {
     match listing {
-        Listing::OnDeck => "Continue watching".into(),
         Listing::Section(section) => section.title.clone(),
         Listing::Children(item) => item.heading(),
         Listing::Search(words) => format!("Search: {words}"),
@@ -121,7 +127,7 @@ impl App {
         ui::style(&context);
         let auth = store::auth();
         let settings = store::settings();
-        let plex = PlexWorker::start(Identity { client_id: auth.client_id.clone() }, wake);
+        let plex = PlexWorker::start(Identity { client_id: auth.client_id.clone() }, wake.clone());
         player.set_volume(settings.volume);
         let session = match &auth.token {
             Some(token) => {
@@ -137,6 +143,10 @@ impl App {
             gl,
             player,
             plex,
+            wake,
+            art: None,
+            hover_since: None,
+            hover_last: None,
             commands,
             auth,
             settings,
@@ -157,9 +167,11 @@ impl App {
     }
 
     pub fn placed(&mut self, corner: Corner, width: f32) {
+        let playing = self.now.is_some();
         self.settings = Settings {
             corner,
-            width: if self.now.is_some() { width } else { self.settings.width },
+            width: if playing { width } else { self.settings.width },
+            library_width: if playing { self.settings.library_width } else { width },
             ..self.settings.clone()
         };
         let _ = store::save_settings(&self.settings);
@@ -218,7 +230,7 @@ impl App {
     }
 
     fn refresh_home(&self) {
-        self.plex.ask(Request::List(Listing::OnDeck));
+        self.plex.ask(Request::Home);
     }
 
     fn stop(&mut self) {
@@ -260,20 +272,21 @@ impl App {
             Command::Corner { corner } => self.save(Settings { corner, ..self.settings.clone() }),
             Command::Play { words } => self.play_matching(words.join(" ")),
             Command::Stop => self.stop(),
-            Command::Quit => {
-                self.report(PlayState::Stopped);
-                self.quit = true;
-            }
+            Command::Quit => self.quit = true,
         }
     }
 
     fn play_matching(&mut self, words: String) {
         if words.trim().is_empty() {
-            self.play_found(self.browser.on_deck.first().cloned());
+            self.play_found(self.latest());
             return;
         }
         self.plex.ask(Request::List(Listing::Search(model::without_year(&words))));
         self.wanted = Some(words);
+    }
+
+    fn latest(&self) -> Option<Item> {
+        self.browser.rows.iter().find(|row| row.resumes()).and_then(|row| row.items.first()).cloned()
     }
 
     fn play_found(&mut self, found: Option<Item>) {
@@ -306,6 +319,7 @@ impl App {
         self.auth = Auth { token: None, ..self.auth.clone() };
         let _ = store::save_auth(&self.auth);
         self.browser = Browser::default();
+        self.art = None;
         self.session = Session::SignedOut { waiting: false, notice, link: None };
     }
 
@@ -345,10 +359,6 @@ impl App {
     }
 
     fn listed(&mut self, listing: Listing, items: Vec<Item>) {
-        if listing == Listing::OnDeck {
-            self.browser.on_deck = items;
-            return;
-        }
         if let Some(words) = self.wanted.take_if(|words| listing == Listing::Search(model::without_year(words))) {
             self.play_found(model::best_match(&items, &words).cloned());
             return;
@@ -378,11 +388,13 @@ impl App {
             }
             Reply::Connected { library } => {
                 self.browser = Browser { server: library.server().name.clone(), ..Browser::default() };
+                self.art = Some(Art::start(&library, self.wake.clone()));
                 self.session = Session::Ready(library);
                 self.plex.ask(Request::Sections);
                 self.refresh_home();
             }
             Reply::Sections(sections) => self.browser.sections = sections,
+            Reply::Home(rows) => self.browser.rows = rows,
             Reply::Listed { listing, items } => self.listed(listing, items),
             Reply::Following { rating_key, items } => self.queued(rating_key, items),
             Reply::SignedOut => self.sign_out(Some("Plex asked for a fresh sign-in.".into())),
@@ -408,11 +420,32 @@ impl App {
         self.report_when_due();
     }
 
-    fn look(&self, hovered: bool, modifier_held: bool) -> Look {
+    fn notice_pointer(&mut self, hovered: bool) {
+        let now = Instant::now();
+        if hovered {
+            self.hover_last = Some(now);
+            self.hover_since = self.hover_since.or(Some(now));
+        }
+        if !self.hovering() {
+            self.hover_since = None;
+        }
+    }
+
+    fn hovering(&self) -> bool {
+        self.hover_last.is_some_and(|last| last.elapsed() < LINGER)
+    }
+
+    fn until_controls(&self) -> Option<Duration> {
+        let wait = Duration::from_secs_f32(self.settings.controls_after.clamp(0.0, 30.0));
+        self.hover_since.map(|since| wait.saturating_sub(since.elapsed()))
+    }
+
+    fn look(&self) -> Look {
+        let hovered = self.hovering();
         Presence {
             playing: self.now.is_some(),
             controls_wanted: self.controls_wanted,
-            modifier_held: modifier_held && hovered,
+            dwelt: hovered && self.until_controls().is_some_and(|left| left.is_zero()),
             hovered,
             hidden: self.hidden,
             opacity: self.settings.opacity,
@@ -454,7 +487,7 @@ impl App {
                 ui::sign_in(ui, *waiting, notice.as_deref(), link.as_deref())
             }
             Session::Connecting => ui::connecting(ui),
-            Session::Ready(_) => ui::browser(ui, &mut self.browser),
+            Session::Ready(_) => ui::browser(ui, self.art.as_ref(), &mut self.browser, self.settings.corner),
         }
     }
 
@@ -482,11 +515,24 @@ impl App {
         if playback.paused { Activity::Paused } else { Activity::Playing }
     }
 
+    fn next_look(&self, playing: bool, look: Look) -> Option<Duration> {
+        if !playing {
+            return None;
+        }
+        if look.controls {
+            return Some(CONTROLS_REFRESH);
+        }
+        self.until_controls().map(|left| left + Duration::from_millis(15))
+    }
+
     pub fn frame(&mut self, input: FrameInput) -> Wants {
         self.tick();
         let playback = self.player.playback();
-        let (hovered, modifier_held) = (input.hovered, input.modifier_held);
-        let look = self.look(hovered, modifier_held);
+        self.notice_pointer(input.hovered);
+        if let Some(art) = self.art.as_mut() {
+            art.take_in(&self.context);
+        }
+        let look = self.look();
         let playing = self.now.is_some();
         if playing && look.visible {
             self.draw_video(input.pixels);
@@ -509,14 +555,25 @@ impl App {
         Wants {
             #[cfg(not(target_os = "linux"))]
             activity: self.activity(&playback),
-            look: self.look(hovered, modifier_held),
-            size: if still_playing { placement::sized(self.settings.width, aspect) } else { LIBRARY_SIZE },
-            aspect,
+            look: self.look(),
+            size: if still_playing {
+                placement::sized(self.settings.width, aspect)
+            } else {
+                placement::sized(self.settings.library_width, LIBRARY_ASPECT)
+            },
+            aspect: if still_playing { aspect } else { LIBRARY_ASPECT },
             corner: self.settings.corner,
             keyboard: !still_playing && !self.hidden,
             gesture,
             quit: self.quit,
-            repaint_after: if still_playing && look.controls { Some(CONTROLS_REFRESH) } else { repaint },
+            repaint_after: self.next_look(still_playing, look).or(repaint),
         }
+    }
+}
+
+impl Drop for App {
+    fn drop(&mut self) {
+        self.report(PlayState::Stopped);
+        self.plex.flush(LAST_WORD);
     }
 }
